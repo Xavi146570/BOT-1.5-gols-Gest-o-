@@ -25,7 +25,7 @@ class Config:
     MIN_EV_THRESHOLD = float(os.getenv('MIN_EV_THRESHOLD', '0.05'))
     MIN_CONFIDENCE_SCORE = float(os.getenv('MIN_CONFIDENCE_SCORE', '60'))
     
-    # Ligas prioritárias
+    # Ligas prioritárias (IDs da API Football)
     PRIORITY_LEAGUES_STR = os.getenv('PRIORITY_LEAGUES', '39,140,135,78,61')
     PRIORITY_LEAGUES: List[int] = [int(x.strip()) for x in PRIORITY_LEAGUES_STR.split(',') if x.strip()]
     
@@ -33,8 +33,11 @@ class Config:
     API_RATE_LIMIT = int(os.getenv('API_RATE_LIMIT', '450'))
     API_REQUESTS_PER_MINUTE = API_RATE_LIMIT / (24 * 60)
     
-    # Bookmakers
+    # Bookmakers prioritários
     PRIORITY_BOOKMAKERS = ['Bet365', '1xBet', 'Betfair', 'William Hill', 'Pinnacle']
+    
+    # Cache
+    CACHE_TIMEOUT = int(os.getenv('CACHE_TIMEOUT', '3600'))
     
     @classmethod
     def validate(cls):
