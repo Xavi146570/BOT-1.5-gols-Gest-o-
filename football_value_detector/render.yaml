@@ -1,1 +1,16 @@
+services:
+  - type: web
+    name: football-value-detector
+    env: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn app:app
+    envVars:
+      - key: API_FOOTBALL_KEY
+        sync: false
+      - key: FLASK_ENV
+        value: production
+      - key: MIN_EV_THRESHOLD
+        value: "0.05"
+      - key: PRIORITY_LEAGUES
+        value: "39,140,135,78,61"
 
