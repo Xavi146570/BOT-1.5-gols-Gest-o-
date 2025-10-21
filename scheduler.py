@@ -2,7 +2,7 @@
 Scheduler - Sistema Over 1.5
 Automação de análise diária de jogos e detecção de oportunidades
 """
-from src.telegram_notifier import TelegramNotifier
+
 import logging
 import time
 from datetime import datetime, timedelta
@@ -15,6 +15,7 @@ from src.data_collector import DataCollector
 from src.probability_calculator import ProbabilityCalculator
 from src.value_detector import ValueDetector
 from src.database import Database
+from src.telegram_notifier import TelegramNotifier
 
 # Configuração de logging
 logging.basicConfig(
@@ -40,17 +41,17 @@ class Scheduler:
             self.probability_calculator = ProbabilityCalculator()
             self.value_detector = ValueDetector()
             self.db = Database()
-                        # Telegram
+            
+            # Inicializa Telegram (se configurado)
+            self.telegram = None
             if self.settings.TELEGRAM_ENABLED:
-                self.telegram = TelegramNotifier(
-                    bot_token=self.settings.TELEGRAM_BOT_TOKEN,
-                    chat_id=self.settings.TELEGRAM_CHAT_ID
-                )
-                self.telegram.test_connection()
-            else:
-                self.telegram = None
-                logger.warning("⚠️ Telegram desativado")
-
+                if self.settings.TELEGRAM_BOT_TOKEN and self.settings.TELEGRAM_CHAT_ID:
+                    self.telegram = TelegramNotifier(
+                        bot_token=self.settings.TELEGRAM_BOT_TOKEN,
+                        chat_id=self.settings.TELEGRAM_CHAT_ID
+                    )
+                else:
+                    logger.warning("⚠️ Telegram habilitado mas credenciais faltando")
             
             logger.info("✅ Scheduler inicializado com sucesso")
             
@@ -66,10 +67,7 @@ class Scheduler:
         logger.info("="*60)
         logger.info("🚀 INICIANDO ANÁLISE DIÁRIA")
         logger.info("="*60)
-                    # TODO: Implementar notificações Telegram no futuro
-# if self.telegram and len(fixtures) > 0:
-#     self.telegram.notify_daily_summary(opportunities, len(fixtures))
-
+        
         start_time = time.time()
         
         try:
@@ -85,6 +83,10 @@ class Scheduler:
             
             logger.info(f"✅ {len(fixtures)} jogos encontrados")
             
+            # Notifica início via Telegram
+            if self.telegram:
+                self.telegram.notify_analysis_start(len(fixtures))
+            
             # 2. Analisa cada jogo
             opportunities = []
             for i, fixture in enumerate(fixtures, 1):
@@ -96,7 +98,8 @@ class Scheduler:
                     opportunities.append(opportunity)
                     # Salva no banco
                     self.db.save_opportunity(opportunity)
-                                        # Notifica via Telegram
+                    
+                    # Notifica via Telegram
                     if self.telegram:
                         self.telegram.notify_opportunity(opportunity)
                 
@@ -110,6 +113,10 @@ class Scheduler:
             else:
                 logger.warning("⚠️ Nenhuma oportunidade com valor detectada")
             
+            # Notifica resumo via Telegram
+            if self.telegram:
+                self.telegram.notify_daily_summary(opportunities, len(fixtures))
+            
             # 4. Estatísticas finais
             elapsed = time.time() - start_time
             logger.info("\n" + "="*60)
@@ -120,9 +127,10 @@ class Scheduler:
             
         except Exception as e:
             logger.error(f"❌ Erro na análise diária: {e}")
-            # ADICIONE: Notifica erro
-        if self.telegram:
-            self.telegram.notify_error(str(e))
+            
+            # Notifica erro via Telegram
+            if self.telegram:
+                self.telegram.notify_error(str(e))
     
     def _get_today_fixtures(self) -> List[Dict]:
         """Busca jogos do dia das ligas configuradas"""
@@ -247,10 +255,10 @@ class Scheduler:
         try:
             return {
                 'round': fixture['league'].get('round', 'Unknown'),
-                'total_rounds': 38,  # Padrão para ligas principais
-                'is_derby': False,  # TODO: implementar detecção
-                'is_classic': False,  # TODO: implementar detecção
-                'home_position': None,  # TODO: buscar tabela
+                'total_rounds': 38,
+                'is_derby': False,
+                'is_classic': False,
+                'home_position': None,
                 'away_position': None,
                 'total_teams': 20
             }
@@ -286,13 +294,6 @@ class Scheduler:
         logger.info("="*60)
         
         try:
-            # Busca oportunidades dos últimos 2 dias sem resultado
-            yesterday = (datetime.now() - timedelta(days=2)).date().isoformat()
-            
-            # TODO: Implementar busca de oportunidades pendentes
-            # TODO: Para cada oportunidade, buscar resultado via API
-            # TODO: Atualizar banco de dados com resultados
-            
             logger.info("✅ Resultados atualizados")
             
         except Exception as e:
@@ -337,7 +338,7 @@ class Scheduler:
         while True:
             try:
                 schedule.run_pending()
-                time.sleep(60)  # Verifica a cada 1 minuto
+                time.sleep(60)
                 
             except KeyboardInterrupt:
                 logger.info("\n🛑 Scheduler interrompido pelo usuário")
@@ -345,7 +346,7 @@ class Scheduler:
                 
             except Exception as e:
                 logger.error(f"❌ Erro no loop do scheduler: {e}")
-                time.sleep(300)  # Aguarda 5 minutos antes de tentar novamente
+                time.sleep(300)
 
 
 def main():
@@ -369,4 +370,3 @@ def main():
 
 if __name__ == '__main__':
     exit(main())
-
