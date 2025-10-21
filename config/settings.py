@@ -11,9 +11,11 @@ load_dotenv()
 class Settings:
     """Configurações do sistema"""
     
+    # API Football
     API_FOOTBALL_KEY = os.getenv('API_FOOTBALL_KEY', '')
     API_FOOTBALL_BASE_URL = 'https://v3.football.api-sports.io'
     
+    # Ligas para análise
     TARGET_LEAGUES = [
         39,   # Premier League
         140,  # La Liga
@@ -22,7 +24,17 @@ class Settings:
         61    # Ligue 1
     ]
     
+    # Database
     DATABASE_PATH = os.getenv('DATABASE_PATH', 'football_value.db')
+    
+    # Flask
     PORT = int(os.getenv('PORT', 10000))
+    
+    # Rate Limiting
     REQUESTS_PER_MINUTE = 30
     DELAY_BETWEEN_REQUESTS = 2
+    
+    # Telegram (NOVO)
+    TELEGRAM_BOT_TOKEN = os.getenv('TELEGRAM_BOT_TOKEN', '')
+    TELEGRAM_CHAT_ID = os.getenv('TELEGRAM_CHAT_ID', '')
+    TELEGRAM_ENABLED = bool(TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID)
