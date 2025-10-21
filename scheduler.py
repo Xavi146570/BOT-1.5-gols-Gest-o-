@@ -67,8 +67,6 @@ class Scheduler:
         logger.info("🚀 INICIANDO ANÁLISE DIÁRIA")
         logger.info("="*60)
                     # Envia resumo diário
-            if self.telegram and len(fixtures) > 0:
-                self.telegram.notify_daily_summary(opportunities, len(fixtures))
         
         start_time = time.time()
         
