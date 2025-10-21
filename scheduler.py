@@ -2,7 +2,7 @@
 Scheduler - Sistema Over 1.5
 Automação de análise diária de jogos e detecção de oportunidades
 """
-
+from src.telegram_notifier import TelegramNotifier
 import logging
 import time
 from datetime import datetime, timedelta
