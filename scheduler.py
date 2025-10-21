@@ -120,6 +120,9 @@ class Scheduler:
             
         except Exception as e:
             logger.error(f"❌ Erro na análise diária: {e}")
+            # ADICIONE: Notifica erro
+        if self.telegram:
+            self.telegram.notify_error(str(e))
     
     def _get_today_fixtures(self) -> List[Dict]:
         """Busca jogos do dia das ligas configuradas"""
