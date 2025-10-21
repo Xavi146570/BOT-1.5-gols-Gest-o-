@@ -1,194 +1,204 @@
 """
 Telegram Notifier - Sistema Over 1.5
-Envia notificações de oportunidades para Telegram
+Envia notificações de oportunidades detectadas via Telegram
 """
 
 import logging
 import requests
-from typing import Dict, List, Optional
+from typing import List, Dict, Optional
 
 logger = logging.getLogger(__name__)
 
 
 class TelegramNotifier:
-    """Envia notificações via Telegram"""
+    """Gerencia notificações via Telegram"""
     
     def __init__(self, bot_token: str, chat_id: str):
         """
-        Inicializa notificador
+        Inicializa notificador Telegram
         
         Args:
-            bot_token: Token do bot do Telegram
-            chat_id: ID do chat para enviar mensagens
+            bot_token: Token do bot Telegram
+            chat_id: ID do chat/grupo para enviar mensagens
         """
         self.bot_token = bot_token
         self.chat_id = chat_id
         self.base_url = f"https://api.telegram.org/bot{bot_token}"
-        self.enabled = bool(bot_token and chat_id)
         
-        if self.enabled:
-            logger.info("✅ Telegram notificador ativado")
+        # Testa conexão
+        if self._test_connection():
+            logger.info("✅ Telegram conectado com sucesso")
         else:
-            logger.warning("⚠️ Telegram desativado (sem token/chat_id)")
+            logger.warning("⚠️ Falha ao conectar com Telegram")
     
-    def send_message(self, text: str) -> bool:
+    def _test_connection(self) -> bool:
+        """Testa conexão com Telegram"""
+        try:
+            response = requests.get(f"{self.base_url}/getMe", timeout=5)
+            return response.status_code == 200
+        except Exception as e:
+            logger.error(f"Erro ao testar Telegram: {e}")
+            return False
+    
+    def send_message(self, text: str, parse_mode: str = "HTML") -> bool:
         """
-        Envia mensagem simples
+        Envia mensagem para o Telegram
         
         Args:
             text: Texto da mensagem
+            parse_mode: Modo de formatação (HTML ou Markdown)
             
         Returns:
             True se enviado com sucesso
         """
-        if not self.enabled:
-            return False
-        
         try:
             url = f"{self.base_url}/sendMessage"
             data = {
-                'chat_id': self.chat_id,
-                'text': text,
-                'parse_mode': 'HTML'
+                "chat_id": self.chat_id,
+                "text": text,
+                "parse_mode": parse_mode,
+                "disable_web_page_preview": True
             }
             
-            response = requests.post(url, data=data, timeout=10)
-            response.raise_for_status()
+            response = requests.post(url, json=data, timeout=10)
             
-            logger.info("✅ Mensagem Telegram enviada")
-            return True
-            
+            if response.status_code == 200:
+                logger.info("✅ Mensagem Telegram enviada")
+                return True
+            else:
+                logger.error(f"❌ Erro ao enviar Telegram: {response.text}")
+                return False
+                
         except Exception as e:
-            logger.error(f"❌ Erro ao enviar Telegram: {e}")
+            logger.error(f"❌ Exceção ao enviar Telegram: {e}")
             return False
     
     def notify_opportunity(self, opportunity: Dict) -> bool:
         """
-        Notifica nova oportunidade detectada
+        Notifica uma única oportunidade detectada
         
         Args:
             opportunity: Dict com dados da oportunidade
         """
-        if not self.enabled:
-            return False
-        
         try:
-            # Formata mensagem
-            message = self._format_opportunity_message(opportunity)
+            # Emojis para qualidade
+            quality_emoji = {
+                'EXCELENTE': '🌟',
+                'MUITO BOA': '⭐',
+                'BOA': '✅',
+                'REGULAR': '🟡',
+                'FRACA': '⚪'
+            }
             
-            # Envia
-            return self.send_message(message)
+            emoji = quality_emoji.get(opportunity['bet_quality'], '⚽')
             
-        except Exception as e:
-            logger.error(f"❌ Erro ao notificar oportunidade: {e}")
-            return False
-    
-    def notify_daily_summary(self, opportunities: List[Dict], total_analyzed: int) -> bool:
-        """
-        Envia resumo diário
-        
-        Args:
-            opportunities: Lista de oportunidades encontradas
-            total_analyzed: Total de jogos analisados
-        """
-        if not self.enabled:
-            return False
-        
-        try:
-            message = self._format_daily_summary(opportunities, total_analyzed)
-            return self.send_message(message)
-        except Exception as e:
-            logger.error(f"❌ Erro ao enviar resumo: {e}")
-            return False
-    
-    def _format_opportunity_message(self, opp: Dict) -> str:
-        """Formata mensagem de oportunidade"""
-        
-        # Emoji baseado na qualidade
-        quality_emoji = {
-            'EXCELENTE': '🔥',
-            'MUITO BOA': '⭐',
-            'BOA': '✅',
-            'REGULAR': '📊'
-        }
-        emoji = quality_emoji.get(opp['bet_quality'], '📊')
-        
-        # Formata mensagem
-        message = f"""
-{emoji} <b>OPORTUNIDADE DETECTADA!</b> {emoji}
+            message = f"""
+{emoji} <b>OPORTUNIDADE DETECTADA!</b>
 
-⚽ <b>{opp['home_team']} vs {opp['away_team']}</b>
-🏆 {opp['league']}
-📅 {self._format_date(opp['match_date'])}
+⚽ <b>{opportunity['home_team']} vs {opportunity['away_team']}</b>
+🏆 Liga: {opportunity['league']}
+📅 Data: {opportunity['match_date'][:16].replace('T', ' ')}
 
 📊 <b>ANÁLISE:</b>
-• Probabilidade Over 1.5: <b>{opp['our_probability']*100:.1f}%</b>
-• Odds: <b>{opp['over_1_5_odds']:.2f}</b>
-• Expected Value: <b>{opp['expected_value']*100:+.1f}%</b>
-• Confiança: <b>{opp['confidence']:.0f}%</b>
+• Probabilidade: <b>{opportunity['our_probability']*100:.1f}%</b>
+• Odds Over 1.5: <b>{opportunity['over_1_5_odds']:.2f}</b>
+• Expected Value: <b>{opportunity['expected_value']*100:+.1f}%</b>
 
 💰 <b>RECOMENDAÇÃO:</b>
-• Stake: <b>{opp['recommended_stake']:.1f}% do bankroll</b>
-• Qualidade: <b>{opp['bet_quality']}</b>
-• Risco: <b>{opp['risk_level']}</b>
+• Stake: <b>{opportunity['recommended_stake']:.1f}%</b> do bankroll
+• Qualidade: <b>{opportunity['bet_quality']}</b>
+• Risco: <b>{opportunity['risk_level']}</b>
+• Confiança: <b>{opportunity['confidence']:.0f}%</b>
 
-🎯 Aposte em: <b>OVER 1.5 GOLS</b>
-"""
-        return message.strip()
-    
-    def _format_daily_summary(self, opportunities: List[Dict], total: int) -> str:
-        """Formata resumo diário"""
-        
-        count = len(opportunities)
-        
-        if count == 0:
-            message = f"""
-📊 <b>RESUMO DIÁRIO</b>
-
-🔍 Jogos analisados: <b>{total}</b>
-🎯 Oportunidades encontradas: <b>0</b>
-
-⚠️ Nenhuma oportunidade com valor detectada hoje.
-"""
-        else:
-            message = f"""
-📊 <b>RESUMO DIÁRIO</b>
-
-🔍 Jogos analisados: <b>{total}</b>
-🎯 Oportunidades encontradas: <b>{count}</b>
-
-"""
-            # Adiciona top 3 oportunidades
-            top_3 = sorted(opportunities, key=lambda x: x['expected_value'], reverse=True)[:3]
+🔢 Edge: {opportunity['edge']*100:+.1f}%
+            """.strip()
             
-            for i, opp in enumerate(top_3, 1):
-                emoji = '🔥' if i == 1 else '⭐' if i == 2 else '✅'
-                message += f"""
-{emoji} <b>#{i} - {opp['home_team']} vs {opp['away_team']}</b>
-   EV: {opp['expected_value']*100:+.1f}% | Odds: {opp['over_1_5_odds']:.2f} | {opp['bet_quality']}
-
-"""
-        
-        return message.strip()
-    
-    def _format_date(self, date_str: str) -> str:
-        """Formata data para exibição"""
-        try:
-            from datetime import datetime
-            dt = datetime.fromisoformat(date_str.replace('Z', '+00:00'))
-            return dt.strftime('%d/%m/%Y %H:%M')
-        except:
-            return date_str
-    
-    def test_connection(self) -> bool:
-        """Testa conexão com Telegram"""
-        if not self.enabled:
-            logger.warning("⚠️ Telegram não configurado")
-            return False
-        
-        try:
-            message = "🤖 <b>Football Value Detector</b>\n\n✅ Sistema iniciado com sucesso!"
             return self.send_message(message)
+            
         except Exception as e:
-            logger.error(f"❌ Erro ao testar Telegram: {e}")
+            logger.error(f"Erro ao notificar oportunidade: {e}")
             return False
+    
+    def notify_daily_summary(self, opportunities: List[Dict], total_matches: int) -> bool:
+        """
+        Envia resumo diário da análise
+        
+        Args:
+            opportunities: Lista de oportunidades detectadas
+            total_matches: Total de jogos analisados
+        """
+        try:
+            if not opportunities:
+                message = f"""
+📊 <b>RESUMO DIÁRIO - Over 1.5</b>
+
+🔍 Jogos analisados: <b>{total_matches}</b>
+❌ Nenhuma oportunidade com valor detectada hoje
+
+Critérios aplicados:
+• Probabilidade ≥ 65%
+• Confiança ≥ 60%
+• EV ≥ +5%
+                """.strip()
+            else:
+                # Estatísticas
+                avg_ev = sum(o['expected_value'] for o in opportunities) / len(opportunities)
+                avg_prob = sum(o['our_probability'] for o in opportunities) / len(opportunities)
+                total_stake = sum(o['recommended_stake'] for o in opportunities)
+                
+                # Distribuição por qualidade
+                quality_dist = {}
+                for opp in opportunities:
+                    q = opp['bet_quality']
+                    quality_dist[q] = quality_dist.get(q, 0) + 1
+                
+                quality_text = '\n'.join(
+                    f"  • {q}: {count}x"
+                    for q, count in sorted(quality_dist.items())
+                )
+                
+                message = f"""
+🎯 <b>RESUMO DIÁRIO - Over 1.5</b>
+
+🔍 Jogos analisados: <b>{total_matches}</b>
+✅ Oportunidades detectadas: <b>{len(opportunities)}</b>
+
+📊 <b>ESTATÍSTICAS:</b>
+• EV Médio: <b>{avg_ev*100:+.1f}%</b>
+• Prob. Média: <b>{avg_prob*100:.1f}%</b>
+• Stake Total: <b>{total_stake:.1f}%</b>
+
+🏆 <b>DISTRIBUIÇÃO:</b>
+{quality_text}
+
+💡 Detalhes de cada jogo foram enviados acima.
+                """.strip()
+            
+            return self.send_message(message)
+            
+        except Exception as e:
+            logger.error(f"Erro ao enviar resumo diário: {e}")
+            return False
+    
+    def notify_analysis_start(self, total_matches: int) -> bool:
+        """Notifica início da análise diária"""
+        message = f"""
+🚀 <b>INICIANDO ANÁLISE DIÁRIA</b>
+
+🔍 {total_matches} jogos encontrados para análise
+⏳ Processando...
+        """.strip()
+        
+        return self.send_message(message)
+    
+    def notify_error(self, error_message: str) -> bool:
+        """Notifica erro no sistema"""
+        message = f"""
+⚠️ <b>ERRO NO SISTEMA</b>
+
+❌ {error_message}
+
+Por favor, verifique os logs.
+        """.strip()
+        
+        return self.send_message(message)
