@@ -40,6 +40,17 @@ class Scheduler:
             self.probability_calculator = ProbabilityCalculator()
             self.value_detector = ValueDetector()
             self.db = Database()
+                        # Telegram
+            if self.settings.TELEGRAM_ENABLED:
+                self.telegram = TelegramNotifier(
+                    bot_token=self.settings.TELEGRAM_BOT_TOKEN,
+                    chat_id=self.settings.TELEGRAM_CHAT_ID
+                )
+                self.telegram.test_connection()
+            else:
+                self.telegram = None
+                logger.warning("⚠️ Telegram desativado")
+
             
             logger.info("✅ Scheduler inicializado com sucesso")
             
@@ -55,6 +66,9 @@ class Scheduler:
         logger.info("="*60)
         logger.info("🚀 INICIANDO ANÁLISE DIÁRIA")
         logger.info("="*60)
+                    # Envia resumo diário
+            if self.telegram and len(fixtures) > 0:
+                self.telegram.notify_daily_summary(opportunities, len(fixtures))
         
         start_time = time.time()
         
@@ -82,6 +96,9 @@ class Scheduler:
                     opportunities.append(opportunity)
                     # Salva no banco
                     self.db.save_opportunity(opportunity)
+                                        # Notifica via Telegram
+                    if self.telegram:
+                        self.telegram.notify_opportunity(opportunity)
                 
                 # Rate limiting - aguarda entre requisições
                 time.sleep(2)
