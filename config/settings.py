@@ -22,12 +22,25 @@ class Settings:
         self.DATABASE_PATH = os.getenv('DATABASE_PATH', 'football_value.db')
         
         # Ligas para análise (IDs da API-Football)
+        # ✅ CONFIGURAÇÃO IDEAL: 10 LIGAS
         self.TARGET_LEAGUES = [
-            39,   # Premier League (Inglaterra)
-            140,  # La Liga (Espanha)
-            135,  # Serie A (Itália)
-            78,   # Bundesliga (Alemanha)
-            61    # Ligue 1 (França)
+            # === TOP 5 LIGAS EUROPEIAS ===
+            39,   # 🏴󠁧󠁢󠁥󠁮󠁧󠁿 Premier League (Inglaterra)
+            140,  # 🇪🇸 La Liga (Espanha)
+            135,  # 🇮🇹 Serie A (Itália)
+            78,   # 🇩🇪 Bundesliga (Alemanha)
+            61,   # 🇫🇷 Ligue 1 (França)
+            
+            # === COMPETIÇÕES UEFA ===
+            2,    # ⚽ UEFA Champions League
+            3,    # ⚽ UEFA Europa League
+            
+            # === SEGUNDA DIVISÃO (Alto Volume) ===
+            40,   # 🏴󠁧󠁢󠁥󠁮󠁧󠁿 Championship (Inglaterra - 2ª Divisão)
+            
+            # === OUTRAS LIGAS EUROPEIAS OFENSIVAS ===
+            94,   # 🇵🇹 Primeira Liga (Portugal)
+            88    # 🇳🇱 Eredivisie (Holanda)
         ]
         
         # Rate limiting
