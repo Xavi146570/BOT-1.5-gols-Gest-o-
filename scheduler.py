@@ -5,9 +5,11 @@ Automação de análise diária de jogos e detecção de oportunidades
 
 import logging
 import time
+import requests
 from datetime import datetime, timedelta
 from typing import List, Dict
 import schedule
+import threading
 
 from config.settings import Settings
 from src.api_client import APIClient
@@ -53,11 +55,50 @@ class Scheduler:
                 else:
                     logger.warning("⚠️ Telegram habilitado mas credenciais faltando")
             
+            # URL para self-ping (detecta automaticamente no Render)
+            import os
+            render_service = os.getenv('RENDER_SERVICE_NAME', 'football-value-detector-1-5-gols')
+            self.self_ping_url = f"https://{render_service}.onrender.com/health"
+            
             logger.info("✅ Scheduler inicializado com sucesso")
             
         except Exception as e:
             logger.error(f"❌ Erro ao inicializar Scheduler: {e}")
             raise
+    
+    def self_ping(self):
+        """
+        Faz ping em si mesmo para manter Render acordado
+        Executa a cada 14 minutos
+        """
+        try:
+            response = requests.get(self.self_ping_url, timeout=10)
+            if response.status_code == 200:
+                logger.debug(f"🔄 Self-ping OK: {response.status_code}")
+            else:
+                logger.warning(f"⚠️ Self-ping retornou: {response.status_code}")
+        except Exception as e:
+            logger.error(f"❌ Erro no self-ping: {e}")
+    
+    def start_self_ping_thread(self):
+        """
+        Inicia thread separada para self-ping a cada 14 minutos
+        Isso mantém o app acordado no Render (que dorme após 15 min)
+        """
+        def ping_loop():
+            logger.info("🔄 Self-ping iniciado (intervalo: 14 minutos)")
+            while True:
+                try:
+                    self.self_ping()
+                    time.sleep(14 * 60)  # 14 minutos
+                except Exception as e:
+                    logger.error(f"❌ Erro no loop de self-ping: {e}")
+                    time.sleep(60)  # Aguarda 1 minuto antes de tentar novamente
+        
+        # Inicia thread daemon (termina quando programa principal termina)
+        ping_thread = threading.Thread(target=ping_loop, daemon=True)
+        ping_thread.start()
+        logger.info("✅ Thread de self-ping iniciada")
     
     def analyze_daily_matches(self):
         """
@@ -321,6 +362,9 @@ class Scheduler:
         logger.info("🤖 SCHEDULER INICIADO")
         logger.info("="*60)
         
+        # Inicia self-ping em thread separada
+        self.start_self_ping_thread()
+        
         # Agenda tarefas
         schedule.every().day.at("08:00").do(self.analyze_daily_matches)
         schedule.every().day.at("02:00").do(self.update_results)
@@ -330,6 +374,7 @@ class Scheduler:
         logger.info("   - 08:00: Análise diária de jogos")
         logger.info("   - 02:00: Atualização de resultados")
         logger.info("   - 03:00 (Domingos): Limpeza de dados antigos")
+        logger.info("   - A cada 14 min: Self-ping (manter ativo)")
         logger.info("")
         logger.info("⏳ Aguardando próxima execução...")
         logger.info("="*60)
