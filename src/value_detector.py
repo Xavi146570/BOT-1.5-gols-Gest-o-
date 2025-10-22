@@ -110,3 +110,43 @@ class ValueDetector:
             return "MODERADO"
         else:
             return "ALTO"
+
+# ADICIONE ESTE MÉTODO AQUI:
+    def rank_opportunities(
+        self,
+        opportunities: List[Dict]
+    ) -> List[Dict]:
+        """
+        Rankeia oportunidades por qualidade
+        
+        Ordena por: EV × Confiança
+        
+        Args:
+            opportunities: Lista de oportunidades
+            
+        Returns:
+            Lista ordenada por ranking
+        """
+        try:
+            if not opportunities:
+                return []
+            
+            # Adiciona score de ranking
+            for opp in opportunities:
+                ev = opp.get('expected_value', 0)
+                conf = opp.get('confidence', 0) / 100
+                opp['ranking_score'] = ev * conf
+            
+            # Ordena por score (maior primeiro)
+            ranked = sorted(
+                opportunities,
+                key=lambda x: x.get('ranking_score', 0),
+                reverse=True
+            )
+            
+            return ranked
+            
+        except Exception as e:
+            logger.error(f"Erro ao rankear oportunidades: {e}")
+            return opportunities
+
