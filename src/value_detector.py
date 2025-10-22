@@ -3,7 +3,7 @@ Value Detector - Sistema Over 1.5
 """
 
 import logging
-from typing import Dict, Optional
+from typing import Dict, List, Optional, Tuple
 from datetime import datetime
 
 logger = logging.getLogger(__name__)
