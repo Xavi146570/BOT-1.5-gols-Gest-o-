@@ -6,7 +6,7 @@ Automação de análise diária de jogos e detecção de oportunidades
 import logging
 import time
 import requests
-from datetime import datetime, timedelta
+from datetime import datetime, timezone, timedelta
 from typing import List, Dict
 import schedule
 import threading
@@ -112,14 +112,22 @@ class Scheduler:
         start_time = time.time()
         
         try:
-            # 1. Busca jogos do dia
-            today = datetime.now().date().isoformat()
+            # 1. Busca jogos do dia - FORÇANDO UTC
+            now_utc = datetime.now(timezone.utc)
+            today = now_utc.date().isoformat()
+            
+            logger.info(f"🌍 Timezone: UTC")
+            logger.info(f"📅 Data UTC: {today}")
+            logger.info(f"🕐 Hora UTC: {now_utc.strftime('%H:%M:%S')}")
             logger.info(f"📅 Buscando jogos para: {today}")
             
-            fixtures = self._get_today_fixtures()
+            fixtures = self._get_today_fixtures(today)
             
             if not fixtures:
                 logger.warning("⚠️ Nenhum jogo encontrado para hoje")
+                logger.info(f"   ℹ️ Verifique se há jogos agendados para {today} nas 10 ligas configuradas")
+                logger.info(f"   ℹ️ Ligas: Premier League, La Liga, Serie A, Bundesliga, Ligue 1,")
+                logger.info(f"           Champions League, Europa League, Championship, Portugal, Holanda")
                 return
             
             logger.info(f"✅ {len(fixtures)} jogos encontrados")
@@ -168,33 +176,71 @@ class Scheduler:
             
         except Exception as e:
             logger.error(f"❌ Erro na análise diária: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
             
             # Notifica erro via Telegram
             if self.telegram:
                 self.telegram.notify_error(str(e))
     
-    def _get_today_fixtures(self) -> List[Dict]:
-        """Busca jogos do dia das ligas configuradas"""
+    def _get_today_fixtures(self, today: str) -> List[Dict]:
+        """
+        Busca jogos do dia das ligas configuradas
+        
+        Args:
+            today: Data no formato YYYY-MM-DD
+        """
         all_fixtures = []
+        
+        logger.info(f"\n🔍 Buscando jogos em 10 ligas para {today}...")
+        
+        # Nomes das ligas para log amigável
+        league_names = {
+            39: "Premier League 🏴󠁧󠁢󠁥󠁮󠁧󠁿",
+            140: "La Liga 🇪🇸",
+            135: "Serie A 🇮🇹",
+            78: "Bundesliga 🇩🇪",
+            61: "Ligue 1 🇫🇷",
+            2: "Champions League ⚽",
+            3: "Europa League ⚽",
+            40: "Championship 🏴󠁧󠁢󠁥󠁮󠁧󠁿",
+            94: "Primeira Liga 🇵🇹",
+            88: "Eredivisie 🇳🇱"
+        }
         
         for league_id in self.settings.TARGET_LEAGUES:
             try:
-                logger.info(f"Buscando jogos da liga {league_id}...")
+                league_name = league_names.get(league_id, f"Liga {league_id}")
+                logger.info(f"  📡 {league_name}...")
                 
                 fixtures = self.api_client.get_fixtures_by_date(
-                    date=datetime.now().date().isoformat(),
+                    date=today,
                     league_id=league_id
                 )
                 
                 if fixtures:
                     all_fixtures.extend(fixtures)
-                    logger.info(f"  ✅ {len(fixtures)} jogos encontrados")
+                    logger.info(f"     ✅ {len(fixtures)} jogo(s) encontrado(s)")
+                else:
+                    logger.debug(f"     ⚪ Sem jogos agendados")
                 
                 time.sleep(1)  # Rate limiting
                 
             except Exception as e:
-                logger.error(f"  ❌ Erro ao buscar jogos da liga {league_id}: {e}")
+                logger.error(f"     ❌ Erro: {e}")
                 continue
+        
+        logger.info(f"\n📊 TOTAL: {len(all_fixtures)} jogos encontrados")
+        
+        # Log detalhado dos jogos encontrados
+        if all_fixtures:
+            logger.info("\n📋 Lista de jogos:")
+            for i, fixture in enumerate(all_fixtures, 1):
+                home = fixture['teams']['home']['name']
+                away = fixture['teams']['away']['name']
+                league = fixture['league']['name']
+                match_time = fixture['fixture']['date']
+                logger.info(f"   {i}. {home} vs {away} | {league} | {match_time}")
         
         return all_fixtures
     
@@ -256,9 +302,11 @@ class Scheduler:
             logger.info("   💰 Buscando odds...")
             odds_data = self.api_client.get_odds(fixture_id)
             
-            if not odds_data:
-                logger.warning("   ⚠️ Odds não disponíveis")
+            if not odds_data or not odds_data.get('over_1_5_odds'):
+                logger.warning("   ⚠️ Odds Over 1.5 não disponíveis")
                 return None
+            
+            logger.info(f"   💵 Odds Over 1.5: {odds_data['over_1_5_odds']:.2f}")
             
             # 5. Detecta valor
             logger.info("   🔍 Detectando valor...")
@@ -283,12 +331,14 @@ class Scheduler:
                 logger.info(f"   📊 Stake: {opportunity['recommended_stake']:.1f}%")
                 logger.info(f"   ⭐ Qualidade: {opportunity['bet_quality']}")
             else:
-                logger.info("   ⚠️ Sem valor detectado")
+                logger.info("   ⚠️ Sem valor detectado (EV negativo ou critérios não atendidos)")
             
             return opportunity
             
         except Exception as e:
             logger.error(f"   ❌ Erro ao analisar jogo: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
             return None
     
     def _extract_match_context(self, fixture: Dict) -> Dict:
@@ -371,9 +421,9 @@ class Scheduler:
         schedule.every().sunday.at("03:00").do(self.cleanup_old_data)
         
         logger.info("📅 Tarefas agendadas:")
-        logger.info("   - 08:00: Análise diária de jogos")
-        logger.info("   - 02:00: Atualização de resultados")
-        logger.info("   - 03:00 (Domingos): Limpeza de dados antigos")
+        logger.info("   - 08:00 UTC: Análise diária de jogos")
+        logger.info("   - 02:00 UTC: Atualização de resultados")
+        logger.info("   - 03:00 UTC (Domingos): Limpeza de dados antigos")
         logger.info("   - A cada 14 min: Self-ping (manter ativo)")
         logger.info("")
         logger.info("⏳ Aguardando próxima execução...")
@@ -408,6 +458,8 @@ def main():
         
     except Exception as e:
         logger.error(f"❌ Erro fatal: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
         return 1
     
     return 0
