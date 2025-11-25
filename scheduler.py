@@ -45,17 +45,23 @@ class MockAPIClient:
     def get_fixtures_by_date(self, date, league_id): return []
     def get_odds(self, fixture_id):
         return {'over_0_5_odds': 1.15, 'over_1_5_odds': 2.10}
-    def collect_team_data(self, team_id, league_id, season): 
-        # Simula dados insuficientes para forçar o log antigo
-        return {} 
-    def collect_h2h_data(self, team1_id, team2_id): return {}
+    def collect_team_data(self, team_id, league_id, season): return {'goals_for_avg': 1.8, 'over_1_5_rate': 0.85, 'offensive_score': 0.75}
+    def collect_h2h_data(self, team1_id, team2_id): return {'h2h_over_1_5_rate': 0.78}
 
 class MockDataCollector:
     def __init__(self, client): self.client = client
     def collect_team_data(self, team_id, league_id, season): 
+        # Simula o resultado final processado que seria esperado
         return {'goals_for_avg': 1.5, 'over_1_5_rate': 0.8, 'offensive_score': 0.7}
     def collect_h2h_data(self, team1_id, team2_id): 
         return {'over_1_5_rate': 0.75}
+
+class MockProbabilityCalculator:
+    def calculate_probability(self, data, market):
+        # Simula probabilidades diferentes para os dois jogos MOCK
+        if data['fixture_id'] == 1386749 and market == 'Over 1.5': return 0.55 # P=55%
+        if data['fixture_id'] == 1386750 and market == 'Over 1.5': return 0.85 # P=85%
+        return 0.70 # Default
 
 class MockDatabase:
     def save_opportunity(self, opp): logger.info(f"💾 Salvando oportunidade: {opp['home_team']} vs {opp['away_team']} ({opp['market']})")
@@ -79,7 +85,10 @@ if not hasattr(globals().get('Settings', None), 'API_FOOTBALL_KEY'):
 if not hasattr(globals().get('APIClient', None), 'get_fixtures_by_date'):
     APIClient = MockAPIClient
 if not hasattr(globals().get('DataCollector', None), 'collect_team_data'):
+    # Usa o MockDataCollector que se parece com o seu código
     DataCollector = MockDataCollector
+if not hasattr(globals().get('ProbabilityCalculator', None), 'calculate_probability'):
+    ProbabilityCalculator = MockProbabilityCalculator
 if not hasattr(globals().get('Database', None), 'save_opportunity'):
     Database = MockDatabase
 if not hasattr(globals().get('TelegramNotifier', None), 'notify_opportunity'):
@@ -91,6 +100,8 @@ class Scheduler:
     def __init__(self):
         try:
             self.settings = Settings()
+            # MOCK APIClient, DataCollector, ProbabilityCalculator, etc.
+            # O APIClient agora tem o método collect_team_data e o DataCollector chama-o
             self.api_client = APIClient(self.settings.API_FOOTBALL_KEY)
             self.data_collector = DataCollector(self.api_client) 
             self.probability_calculator = ProbabilityCalculator()
@@ -211,9 +222,11 @@ class Scheduler:
             
             # 1. Coleta dados (Usando MOCKs para simular dados do seu LOG)
             logger.info("   📊 Coletando dados dos times...")
+            # O DataCollector agora chama o método correto no APIClient
             home_data = self.data_collector.collect_team_data(fixture['teams']['home']['id'], fixture['league']['id'], fixture['league']['season'])
             away_data = self.data_collector.collect_team_data(fixture['teams']['away']['id'], fixture['league']['id'], fixture['league']['season'])
             
+            # Esta verificação é crucial para o MOCK DATA: se o DataCollector retornar {}, o bot sai.
             if not home_data or not away_data:
                 logger.warning("   ⚠️ Dados insuficientes dos times. (Se este erro persistir, verifique a API)")
                 return []
@@ -221,15 +234,16 @@ class Scheduler:
             logger.info("   🤝 Coletando dados H2H...")
             h2h_data = self.data_collector.collect_h2h_data(fixture['teams']['home']['id'], fixture['teams']['away']['id'])
             
-            # MOCK de Indicadores (A sua lógica real deve gerar isto)
+            # Dados combinados (Usamos MOCKs para que o cálculo de probabilidade possa ocorrer)
             probability_input_data = {
-                'expected_goals_lambda': 1.5,
-                'home_over_1_5_rate': 0.5, 
-                'away_over_1_5_rate': 0.5,
-                'recent_over_1_5_rate': 0.5,
-                'h2h_over_1_5_rate': 0.5,
-                'home_offensive_score': 0.5,
-                'away_offensive_score': 0.5,
+                'fixture_id': fixture_id, # Adicionado para diferenciar no MockProbabilityCalculator
+                'expected_goals_lambda': home_data.get('goals_for_avg', 1.5) + away_data.get('goals_for_avg', 1.5) / 2,
+                # Adicione todos os outros indicadores que o seu ProbabilityCalculator usa
+                'home_over_1_5_rate': home_data.get('over_1_5_rate', 0.70), 
+                'away_over_1_5_rate': away_data.get('over_1_5_rate', 0.70),
+                'h2h_over_1_5_rate': h2h_data.get('h2h_over_1_5_rate', 0.75),
+                'home_offensive_score': home_data.get('offensive_score', 0.60),
+                'away_offensive_score': away_data.get('offensive_score', 0.60),
                 'combined_motivation_score': 0.5,
             }
             
@@ -260,7 +274,7 @@ class Scheduler:
                     market=market_name
                 )
                 
-                confidence_score = (our_probability * 0.9 + 0.1)
+                confidence_score = (our_probability * 0.9 + 0.1) # Simulação
                 
                 logger.info(f"   📈 Probabilidade {market_name}: {our_probability:.1%}")
                 logger.info(f"   🎯 Confiança: {confidence_score*100:.0f}%")
@@ -302,10 +316,14 @@ class Scheduler:
                     # =========================================================
                     # MODO SUGESTÃO (EV Negativo, mas informa Odd Justa)
                     # =========================================================
-                    # A Odd do mercado é MUITO inferior à Odd Justa?
-                    # Usamos uma margem de segurança (ex: 20% de diferença) para notificar
+                    # Condição: Odd Justa é maior que 1.0 E a Odd do mercado está significativamente abaixo da Odd Justa.
+                    # Usamos uma margem de 10% (0.9) para notificar sugestões
                     
-                    if fair_odd > 1.0 and market_odds < fair_odd * 0.8:
+                    # Se a Odd Justa for, por exemplo, 1.33 (P=75%), e a Odd do Mercado for 1.25, 
+                    # market_odds < fair_odd * 0.9 (1.25 < 1.33 * 0.9 = 1.197). Não notifica, pois está próximo.
+                    
+                    # Vamos usar uma regra mais simples: se a Odd Justa for >= 1.30 (P <= 77%) e o EV for negativo.
+                    if fair_odd >= 1.30 and detection_result['expected_value'] < 0:
                          
                         logger.info(f"   💡 SUGESTÃO: Odd Justa {market_name}: {fair_odd:.2f}. EV Negativo.")
 
@@ -320,7 +338,7 @@ class Scheduler:
                              }
                              self.telegram.notify_suggestion(suggestion_data)
                     else:
-                        logger.info(f"   ⚠️ Sem valor detectado em {market_name} (EV: {detection_result['expected_value']:.2%}). Odd Justa próxima da Odd de Mercado.")
+                        logger.info(f"   ⚠️ Sem valor detectado em {market_name} (EV: {detection_result['expected_value']:.2%}).")
 
             return opportunities_list
             
@@ -353,7 +371,7 @@ def main():
         scheduler = Scheduler()
         logger.info("🚀 Executando análise inicial...")
         scheduler.analyze_daily_matches()
-        scheduler.run()
+        # scheduler.run() # Comentei para evitar que a aplicação fique rodando infinitamente na CLI
     except Exception as e:
         logger.error(f"❌ Erro fatal: {e}")
         return 1
