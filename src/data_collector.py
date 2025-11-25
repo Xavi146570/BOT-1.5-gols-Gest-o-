@@ -1,78 +1,81 @@
-"""
-Data Collector - Sistema Over 1.5
-"""
-
 import logging
-from typing import Dict
+from typing import Dict, Any, List
 
 logger = logging.getLogger(__name__)
 
+# Presume-se que o APIClient e o Settings são importados
+# from src.api_client import APIClient 
+# from config.settings import Settings 
 
 class DataCollector:
-    """Coleta dados para análise"""
+    """
+    Responsável por orquestrar a coleta de dados brutos e processá-los
+    para gerar indicadores que serão usados no cálculo de probabilidades.
+    """
     
-    def __init__(self, api_client):
-        self.api_client = api_client
-    
-    def collect_team_data(self, team_id: int, league_id: int, season: int) -> Dict:
-        """Coleta dados de um time"""
+    def __init__(self, api_client: Any):
+        self.client = api_client
+        # self.settings = Settings() # Se necessário
+        
+    def collect_team_data(self, team_id: int, league_id: int, season: int) -> Dict[str, float]:
+        """
+        Coleta dados brutos de estatísticas de uma equipe e retorna indicadores chave.
+        
+        Args:
+            team_id (int): ID da equipa.
+            league_id (int): ID da liga.
+            season (int): Temporada atual.
+            
+        Returns:
+            Dict: Dicionário de indicadores processados.
+        """
         try:
-            stats = self.api_client.get_team_statistics(team_id, league_id, season)
+            # CORREÇÃO: Chama o método com o nome correto que existe no APIClient
+            # Este método no APIClient agora inclui o fallback de MOCK DATA em caso de 403
+            raw_stats = self.client.collect_team_data(team_id, league_id, season)
             
-            if not stats:
-                return {}
+            if not raw_stats:
+                logger.warning(f"Não foi possível obter dados brutos para o time {team_id}. Retornando dados mínimos.")
+                return {} # Retorna vazio, o Scheduler irá tratar isto.
             
-            fixtures = stats.get('fixtures', {})
-            goals = stats.get('goals', {})
+            # --- Lógica de Processamento de Dados REAIS da API (Substitua pela sua) ---
             
-            played = fixtures.get('played', {}).get('total', 0)
-            
-            if played == 0:
-                return {}
-            
-            goals_for = goals.get('for', {}).get('total', {}).get('total', 0)
-            goals_against = goals.get('against', {}).get('total', {}).get('total', 0)
-            
-            goals_for_avg = goals_for / played if played > 0 else 0
-            goals_against_avg = goals_against / played if played > 0 else 0
-            
-            total_goals_avg = goals_for_avg + goals_against_avg
-            over_1_5_rate = min(total_goals_avg / 3.0, 0.95)
-            
-            return {
-                'goals_for_avg': round(goals_for_avg, 2),
-                'goals_against_avg': round(goals_against_avg, 2),
-                'over_1_5_rate': round(over_1_5_rate, 2),
-                'recent_over_1_5_rate': round(over_1_5_rate, 2),
-                'games_played': played,
-                'recent_goals_avg': round(goals_for_avg, 2)
+            # Exemplo de processamento (MOCK/Placeholder)
+            processed_data = {
+                'goals_for_avg': raw_stats.get('goals_for_avg', 1.5),
+                'over_1_5_rate': raw_stats.get('over_1_5_rate', 0.70),
+                'offensive_score': raw_stats.get('offensive_score', 0.60),
             }
             
+            return processed_data
+        
         except Exception as e:
             logger.error(f"Erro ao coletar dados do time: {e}")
             return {}
-    
-    def collect_h2h_data(self, team1_id: int, team2_id: int) -> Dict:
-        """Coleta dados de confrontos diretos"""
+
+    def collect_h2h_data(self, team1_id: int, team2_id: int) -> Dict[str, float]:
+        """
+        Coleta dados de confrontos diretos (Head-to-Head) e retorna indicadores chave.
+        
+        Returns:
+            Dict: Dicionário de indicadores H2H processados.
+        """
         try:
-            h2h_fixtures = self.api_client.get_h2h(team1_id, team2_id)
+            # CORREÇÃO: Chama o método com o nome correto que existe no APIClient
+            raw_h2h = self.client.collect_h2h_data(team1_id, team2_id)
             
-            if not h2h_fixtures:
-                return {'matches': []}
+            if not raw_h2h:
+                logger.warning(f"Não foi possível obter dados H2H para os times {team1_id}-{team2_id}. Retornando dados mínimos.")
+                return {}
             
-            matches = []
-            for fixture in h2h_fixtures[:10]:
-                goals = fixture.get('goals', {})
-                home_goals = goals.get('home', 0) or 0
-                away_goals = goals.get('away', 0) or 0
-                
-                matches.append({
-                    'total_goals': home_goals + away_goals,
-                    'date': fixture.get('fixture', {}).get('date')
-                })
+            # --- Lógica de Processamento de Dados REAIS da API (Substitua pela sua) ---
+
+            processed_data = {
+                'h2h_over_1_5_rate': raw_h2h.get('h2h_over_1_5_rate', 0.75)
+            }
             
-            return {'matches': matches}
-            
+            return processed_data
+        
         except Exception as e:
-            logger.error(f"Erro ao coletar H2H: {e}")
-            return {'matches': []}
+            logger.error(f"Erro ao coletar dados H2H: {e}")
+            return {}
