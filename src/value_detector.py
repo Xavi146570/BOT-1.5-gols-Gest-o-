@@ -1,5 +1,5 @@
 import logging
-from typing import Dict, Any
+from typing import Dict, Any, List
 
 logger = logging.getLogger(__name__)
 
@@ -25,7 +25,6 @@ class ValueDetector:
             return float('inf')
         return 1 / probability
 
-    # CORRIGIDO: O método agora aceita 'probability' e 'market_odds'
     def detect_value(self, probability: float, market_odds: float) -> Dict[str, Any]:
         """
         Calcula o Expected Value (EV) e determina se há valor.
@@ -37,23 +36,16 @@ class ValueDetector:
         Returns:
             Dict: Dicionário contendo resultados da detecção, incluindo EV e Kelly.
         """
+        # ... (Mantido o código de detecção anterior)
         fair_odd = self.calculate_fair_odd(probability)
-        
-        # 1. Expected Value (EV)
-        # EV = (P * Odd) - 1
         expected_value = (probability * market_odds) - 1
-        
-        # 2. Critério de Valor
         is_value = expected_value > self.required_ev
         
-        # 3. Kelly Criterion (Fração Otimizada)
-        # F = (P * Odd - 1) / (Odd - 1)
         if market_odds > 1.0:
             pure_kelly_fraction = expected_value / (market_odds - 1)
         else:
             pure_kelly_fraction = 0.0
             
-        # Limita a stake sugerida à fração Kelly máxima definida
         suggested_stake = min(self.max_kelly_fraction, max(0.0, pure_kelly_fraction))
         
         logger.debug(f"Prob: {probability:.3f}, Odds: {market_odds:.2f}, EV: {expected_value:.2f}, Kelly: {pure_kelly_fraction:.2f}")
@@ -65,3 +57,24 @@ class ValueDetector:
             'pure_kelly_fraction': pure_kelly_fraction,
             'suggested_stake': suggested_stake 
         }
+
+    def rank_opportunities(self, opportunities: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """
+        Rankea as oportunidades com base no Expected Value (EV) e na Confiança.
+        Oportunidades com maior EV são priorizadas, seguidas pela maior confiança.
+        
+        Args:
+            opportunities (List[Dict]): Lista de dicionários de oportunidades.
+            
+        Returns:
+            List[Dict]: Lista classificada de oportunidades.
+        """
+        if not opportunities:
+            return []
+        
+        # Classifica por EV (decrescente) e depois por Confiança (decrescente)
+        # Multiplicamos por -1 para obter a classificação decrescente
+        return sorted(
+            opportunities, 
+            key=lambda x: (x['expected_value'] * -1, x['confidence'] * -1)
+        )
