@@ -17,7 +17,7 @@ from config.settings import Settings
 from src.api_client import APIClient 
 from src.data_collector import DataCollector
 from src.probability_calculator import ProbabilityCalculator 
-from src.value_detector import ValueDetector # Agora com o método corrigido
+from src.value_detector import ValueDetector # Agora com o método rank_opportunities
 from src.database import Database
 from src.telegram_notifier import TelegramNotifier
 
@@ -86,21 +86,20 @@ class MockProbabilityCalculator:
     def calculate_probability(self, data: Dict[str, Any], market: str) -> float:
         """Simula probabilidades para diferentes mercados e jogos MOCK."""
         
-        # Jogo 1386749: Swansea vs Derby (Over 1.5: 55%, Odd 2.05 -> Valor)
+        # Jogo 1386749: Swansea vs Derby (Over 1.5: 55%, Odd 2.05 -> Valor. No mock data, vamos fazer 88.8% para EV alto)
         if data['fixture_id'] == 1386749: 
-            if market == 'Over 1.5': return 0.55 
-            if market == 'Over 0.5': return 0.98 
+            if market == 'Over 1.5': return 0.888 # 88.8% (EV: 81.94% com odd 2.05)
+            if market == 'Over 0.5': return 0.985 # 98.5% (EV: 3.43% com odd 1.05)
             
-        # Jogo 1386750: Southampton vs Leicester (Over 1.5: 85%, Odd 1.25 -> EV Negativo/Sugestão)
+        # Jogo 1386750: Southampton vs Leicester (Over 1.5: 88.8%, Odd 1.25 -> EV 10.94%)
         if data['fixture_id'] == 1386750: 
-            if market == 'Over 1.5': return 0.85
-            if market == 'Over 0.5': return 0.99
+            if market == 'Over 1.5': return 0.888 
+            if market == 'Over 0.5': return 0.985
             
         return 0.70 # Default
 
 class MockValueDetector:
-    """Mock da classe ValueDetector, corrigida para aceitar 2 argumentos posicionais."""
-    # Corrigido: Agora aceita 'probability' e 'market_odds'
+    """Mock da classe ValueDetector, corrigida para aceitar 2 argumentos posicionais e adicionar rank_opportunities."""
     def detect_value(self, probability: float, market_odds: float) -> Dict[str, Any]:
         fair_odd = 1 / probability
         expected_value = (probability * market_odds) - 1
@@ -121,8 +120,20 @@ class MockValueDetector:
             'suggested_stake': suggested_stake 
         }
 
+    def rank_opportunities(self, opportunities: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """Mock: Classifica por expected_value decrescente."""
+        if not opportunities:
+            return []
+        
+        # Classifica por EV (decrescente) e depois por Confiança (decrescente)
+        return sorted(
+            opportunities, 
+            key=lambda x: (x['expected_value'] * -1, x['confidence'] * -1)
+        )
+
 class MockDatabase:
-    def save_opportunity(self, opp): logger.info(f"💾 Salvando oportunidade: {opp['home_team']} vs {opp['away_team']} ({opp['market']})")
+    # Oportunidades agora devem usar 'match_id'
+    def save_opportunity(self, opp): logger.info(f"💾 Salvando oportunidade: {opp.get('home_team')} vs {opp.get('away_team')} ({opp.get('market')})")
     def clear_old_data(self, days): pass
 
 class MockTelegramNotifier:
@@ -160,11 +171,11 @@ class Scheduler:
     def __init__(self):
         try:
             self.settings = Settings()
-            # O APIClient agora tem o método collect_team_data e o DataCollector chama-o
             self.api_client = APIClient(self.settings.API_FOOTBALL_KEY)
             self.data_collector = DataCollector(self.api_client) 
             self.probability_calculator = ProbabilityCalculator()
-            self.value_detector = ValueDetector()
+            # Esta classe agora inclui rank_opportunities
+            self.value_detector = ValueDetector() 
             self.db = Database()
             
             # Inicializa Telegram (se configurado)
@@ -192,7 +203,6 @@ class Scheduler:
     # Métodos self_ping e start_self_ping_thread omitidos por brevidade
 
     def analyze_daily_matches(self):
-        # ... (Mantido igual, mas usando MOCK fixtures para o exemplo)
         logger.info("="*60)
         logger.info("🚀 INICIANDO ANÁLISE DIÁRIA")
         logger.info("="*60)
@@ -230,6 +240,7 @@ class Scheduler:
                 
                 for opportunity in new_opportunities:
                     opportunities.append(opportunity)
+                    # CORRIGIDO: Esta linha chama save_opportunity
                     self.db.save_opportunity(opportunity)
                     
                     if self.telegram:
@@ -239,6 +250,7 @@ class Scheduler:
                 time.sleep(2)
             
             if opportunities:
+                # O método rank_opportunities agora existe
                 ranked = self.value_detector.rank_opportunities(opportunities)
                 self._display_results(ranked)
             else:
@@ -252,6 +264,7 @@ class Scheduler:
             logger.info("="*60)
             
         except Exception as e:
+            # Esta linha será o último ponto de erro se houver problemas na lógica acima
             logger.error(f"❌ Erro na análise diária: {e}")
             
     
@@ -275,11 +288,9 @@ class Scheduler:
             
             # 1. Coleta dados 
             logger.info("   📊 Coletando dados dos times...")
-            # O DataCollector agora chama o método correto no APIClient
             home_data = self.data_collector.collect_team_data(fixture['teams']['home']['id'], fixture['league']['id'], fixture['league']['season'])
             away_data = self.data_collector.collect_team_data(fixture['teams']['away']['id'], fixture['league']['id'], fixture['league']['season'])
             
-            # Esta verificação é crucial para o MOCK DATA: se o DataCollector retornar {}, o bot sai.
             if not home_data or not away_data:
                 logger.warning("   ⚠️ Dados insuficientes dos times. (Se este erro persistir, verifique a API)")
                 return []
@@ -287,11 +298,9 @@ class Scheduler:
             logger.info("   🤝 Coletando dados H2H...")
             h2h_data = self.data_collector.collect_h2h_data(fixture['teams']['home']['id'], fixture['teams']['away']['id'])
             
-            # Dados combinados (Usamos MOCKs para que o cálculo de probabilidade possa ocorrer)
             probability_input_data = {
-                'fixture_id': fixture_id, # Adicionado para diferenciar no MockProbabilityCalculator
+                'fixture_id': fixture_id,
                 'expected_goals_lambda': home_data.get('goals_for_avg', 1.5) + away_data.get('goals_for_avg', 1.5) / 2,
-                # Adicione todos os outros indicadores que o seu ProbabilityCalculator usa
                 'home_over_1_5_rate': home_data.get('over_1_5_rate', 0.70), 
                 'away_over_1_5_rate': away_data.get('over_1_5_rate', 0.70),
                 'h2h_over_1_5_rate': h2h_data.get('h2h_over_1_5_rate', 0.75),
@@ -304,14 +313,12 @@ class Scheduler:
             logger.info("   💰 Buscando odds...")
             odds_data = self.api_client.get_odds(fixture_id)
             
-            # Definir a lista de mercados a analisar
             markets_to_analyze = {}
             if odds_data.get('over_0_5_odds'):
                  markets_to_analyze['Over 0.5'] = odds_data['over_0_5_odds']
             if odds_data.get('over_1_5_odds'):
                  markets_to_analyze['Over 1.5'] = odds_data['over_1_5_odds']
 
-            # Se nenhum mercado tiver odds, sai
             if not markets_to_analyze:
                  logger.warning("   ⚠️ Nenhuma Odd Over/Under encontrada na API.")
                  return []
@@ -333,11 +340,8 @@ class Scheduler:
                 logger.info(f"   🎯 Confiança: {confidence_score*100:.0f}%")
                 logger.info(f"   💵 Odds {market_name}: {market_odds:.2f}")
                 
-                # 4. Detecta valor (Este método retorna a fair_odd SEMPRE)
-                # A linha abaixo está correta, agora que o ValueDetector foi atualizado
+                # 4. Detecta valor
                 detection_result = self.value_detector.detect_value(our_probability, market_odds)
-                
-                # Odd Justa calculada
                 fair_odd = detection_result['fair_odd']
                 
                 if detection_result['is_value']:
@@ -349,7 +353,8 @@ class Scheduler:
                     logger.info(f"   📊 Kelly Pura (F): {detection_result['pure_kelly_fraction']:.2f}%")
 
                     opportunity = {
-                        'fixture_id': fixture_id,
+                        # CORRIGIDO: Usando 'match_id' para corrigir o erro do Database
+                        'match_id': fixture_id, 
                         'home_team': home_team,
                         'away_team': away_team,
                         'league': league_name,
@@ -362,7 +367,7 @@ class Scheduler:
                         'pure_kelly_fraction': detection_result['pure_kelly_fraction'] * 100, 
                         'bet_quality': 'High',
                         'risk_level': 'Medium',
-                        'confidence': confidence_score * 100
+                        'confidence': confidence_score * 100 # Adicionamos o score de confiança aqui
                     }
                     opportunities_list.append(opportunity)
 
@@ -370,12 +375,10 @@ class Scheduler:
                     # =========================================================
                     # MODO SUGESTÃO (EV Negativo, mas informa Odd Justa)
                     # =========================================================
-                    # Usamos uma regra simples: se a Odd Justa for >= 1.30 (P <= 77%) e o EV for negativo.
                     if fair_odd >= 1.30 and detection_result['expected_value'] < 0:
                          
                         logger.info(f"   💡 SUGESTÃO: Odd Justa {market_name}: {fair_odd:.2f}. EV Negativo.")
 
-                        # Notifica o Telegram com a sugestão de valor (Odd Justa)
                         if self.telegram and hasattr(self.telegram, 'notify_suggestion'):
                              suggestion_data = {
                                 'home_team': home_team, 
@@ -394,11 +397,11 @@ class Scheduler:
             logger.error(f"   ❌ Erro ao analisar jogo: {e}")
             return []
     
-    # Métodos _display_results, update_results, cleanup_old_data, run, main omitidos por brevidade
+    # ... (Restante da classe Scheduler, incluindo _display_results, run, main)
     def _display_results(self, opportunities: List[Dict]):
-        """Exibe resumo das oportunidades encontradas"""
+        """Exibe resumo das oportunidades encontradas (agora rankeadas)"""
         logger.info("\n" + "="*60)
-        logger.info("🎯 OPORTUNIDADES DETECTADAS")
+        logger.info("🎯 OPORTUNIDADES DETECTADAS (RANKED)")
         logger.info("="*60)
         
         for i, opp in enumerate(opportunities, 1):
@@ -407,7 +410,8 @@ class Scheduler:
             logger.info(f"   ---")
             logger.info(f"   Probabilidade: {opp['our_probability']:.1%}")
             logger.info(f"   Odds Mercado: {opp['market_odds']:.2f}")
-            logger.info(f"   Expected Value: {opp['expected_value']:.2f}")
+            logger.info(f"   Expected Value: {opp['expected_value']:.2%}") # Alterado para %
+            logger.info(f"   Confiança: {opp['confidence']:.0f}%")
             logger.info(f"   Kelly Pura (F): {opp['pure_kelly_fraction']:.2f}%") 
 
     def update_results(self): pass
@@ -419,7 +423,6 @@ def main():
         scheduler = Scheduler()
         logger.info("🚀 Executando análise inicial...")
         scheduler.analyze_daily_matches()
-        # scheduler.run() # Comentei para evitar que a aplicação fique rodando infinitamente na CLI
     except Exception as e:
         logger.error(f"❌ Erro fatal: {e}")
         return 1
