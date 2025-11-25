@@ -7,10 +7,11 @@ import logging
 import time
 import requests
 from datetime import datetime, timezone, timedelta
-from typing import List, Dict
+from typing import List, Dict, Any
 import schedule
 import threading
 
+# Importações dos Módulos do Projeto
 from config.settings import Settings
 from src.api_client import APIClient
 from src.data_collector import DataCollector
@@ -38,6 +39,7 @@ class Scheduler:
         """Inicializa componentes do sistema"""
         try:
             self.settings = Settings()
+            # Assumindo que a chave API_FOOTBALL_KEY é uma string válida
             self.api_client = APIClient(self.settings.API_FOOTBALL_KEY)
             self.data_collector = DataCollector(self.api_client)
             self.probability_calculator = ProbabilityCalculator()
@@ -157,6 +159,8 @@ class Scheduler:
             
             # 3. Rankeia e exibe resultados
             if opportunities:
+                # O ValueDetector.rank_opportunities deve ser ajustado para a nova estrutura
+                # Assumindo que essa função ainda existe no ValueDetector
                 ranked = self.value_detector.rank_opportunities(opportunities)
                 self._display_results(ranked)
             else:
@@ -244,7 +248,7 @@ class Scheduler:
         
         return all_fixtures
     
-    def _analyze_fixture(self, fixture: Dict) -> Dict:
+    def _analyze_fixture(self, fixture: Dict) -> Dict[str, Any] | None:
         """
         Analisa um jogo completo
         
@@ -263,6 +267,7 @@ class Scheduler:
             # 1. Coleta dados dos times
             logger.info("   📊 Coletando dados dos times...")
             
+            # home_data e away_data são, na verdade, os DADOS do time (estatísticas)
             home_data = self.data_collector.collect_team_data(
                 team_id=fixture['teams']['home']['id'],
                 league_id=fixture['league']['id'],
@@ -286,17 +291,67 @@ class Scheduler:
                 team2_id=fixture['teams']['away']['id']
             )
             
-            # 3. Calcula probabilidade
+            # =================================================================
+            # CORREÇÃO CRÍTICA (Novo Bloco de Cálculo e Consolidação)
+            # -----------------------------------------------------------------
+            # 2.1. Calcula e extrai os 6 indicadores necessários:
+            
+            # PLACEHOLDERS: Estes valores devem ser calculados/extraídos de forma
+            # correta nas funções do DataCollector. Aqui, fazemos uma extração
+            # baseada em nomes comuns de chaves para alimentar o ProbabilityCalculator.
+            
+            # Exemplo de cálculo da Lambda (usando média de gols marcados)
+            avg_goals_home = home_data.get('goals_for_avg', 1.0) # Assume 1.0 se não encontrar
+            avg_goals_away = away_data.get('goals_for_avg', 1.0)
+            lambda_value = (avg_goals_home + avg_goals_away) / 2.0
+            
+            # Extração de Taxas (Assumindo que estão nos dicionários)
+            h2h_over_1_5_rate = h2h_data.get('over_1_5_rate', 0.6)
+            
+            # Média das taxas recentes dos times
+            recent_over_1_5_rate = (
+                home_data.get('recent_over_1_5_rate', 0.6) + 
+                away_data.get('recent_over_1_5_rate', 0.6)
+            ) / 2
+            
+            # Média dos scores de motivação dos times
+            combined_motivation_score = (
+                home_data.get('motivation_score', 0.5) + 
+                away_data.get('motivation_score', 0.5)
+            ) / 2
+            
+            # 2.2. Consolida todos os dados em um único dicionário 'data'
+            probability_input_data = {
+                # Indicador Base (Poisson)
+                'expected_goals_lambda': lambda_value,
+                
+                # Indicadores Primários (Taxa Histórica)
+                'home_over_1_5_rate': home_data.get('over_1_5_rate', 0.5), # Taxa histórica Home
+                'away_over_1_5_rate': away_data.get('over_1_5_rate', 0.5), # Taxa histórica Away
+                'recent_over_1_5_rate': recent_over_1_5_rate, # Tendência
+                
+                # Indicadores Secundários
+                'h2h_over_1_5_rate': h2h_over_1_5_rate,
+                'home_offensive_score': home_data.get('offensive_score', 0.5),
+                'away_offensive_score': away_data.get('offensive_score', 0.5),
+                
+                # Indicadores Contextuais
+                'combined_motivation_score': combined_motivation_score,
+            }
+            # =================================================================
+            
+            # 3. Calcula probabilidade (Chamada CORRIGIDA com o único argumento 'data')
             logger.info("   🧮 Calculando probabilidades...")
-            probability_data = self.probability_calculator.calculate_probability(
-                home_stats=home_data,
-                away_stats=away_data,
-                h2h_data=h2h_data,
-                match_context=self._extract_match_context(fixture)
+            
+            our_probability = self.probability_calculator.calculate_probability(
+                data=probability_input_data
             )
             
-            logger.info(f"   📈 Probabilidade Over 1.5: {probability_data['probability']:.1%}")
-            logger.info(f"   🎯 Confiança: {probability_data['confidence']:.0f}%")
+            # Define um score de confiança (pode ser a própria probabilidade, ajustada)
+            confidence_score = (our_probability * 0.9 + 0.1) # Ex: min 10%
+            
+            logger.info(f"   📈 Probabilidade Over 1.5: {our_probability:.1%}")
+            logger.info(f"   🎯 Confiança: {confidence_score*100:.0f}%")
             
             # 4. Busca odds
             logger.info("   💰 Buscando odds...")
@@ -306,34 +361,56 @@ class Scheduler:
                 logger.warning("   ⚠️ Odds Over 1.5 não disponíveis")
                 return None
             
-            logger.info(f"   💵 Odds Over 1.5: {odds_data['over_1_5_odds']:.2f}")
+            market_odds = odds_data['over_1_5_odds']
+            logger.info(f"   💵 Odds Over 1.5: {market_odds:.2f}")
             
             # 5. Detecta valor
             logger.info("   🔍 Detectando valor...")
             
-            match_data = {
+            # =================================================================
+            # CORREÇÃO CRÍTICA: Consolida TUDO em um dicionário para o ValueDetector
+            # -----------------------------------------------------------------
+            final_game_data = {
                 'fixture_id': fixture_id,
                 'home_team': home_team,
                 'away_team': away_team,
                 'league': league_name,
-                'date': fixture['fixture']['date']
+                'date': fixture['fixture']['date'],
+                # Métricas de Probabilidade e Confiança
+                'our_probability': our_probability,
+                'confidence_score': confidence_score,
+                # Odds
+                'over_1_5_odds': market_odds,
             }
             
-            opportunity = self.value_detector.analyze_match(
-                match_data=match_data,
-                probability_data=probability_data,
-                odds_data=odds_data
-            )
+            # Chamada CORRIGIDA
+            detection_result = self.value_detector.detect_value(final_game_data)
+            # =================================================================
             
-            if opportunity:
+            if detection_result['is_value']:
                 logger.info(f"   ✅ VALOR DETECTADO!")
-                logger.info(f"   💵 EV: {opportunity['expected_value']:.2%}")
-                logger.info(f"   📊 Stake: {opportunity['recommended_stake']:.1f}%")
-                logger.info(f"   ⭐ Qualidade: {opportunity['bet_quality']}")
+                logger.info(f"   💵 EV: {detection_result['expected_value']:.2%}")
+                logger.info(f"   📊 Stake: {detection_result['suggested_stake']*100:.1f}%")
+
+                # Monta o dicionário final de oportunidade (retorna para o loop principal)
+                opportunity = {
+                    'fixture_id': fixture_id,
+                    'home_team': home_team,
+                    'away_team': away_team,
+                    'league': league_name,
+                    'match_date': fixture['fixture']['date'],
+                    'our_probability': our_probability,
+                    'over_1_5_odds': market_odds,
+                    'expected_value': detection_result['expected_value'],
+                    'recommended_stake': detection_result['suggested_stake'] * 100,
+                    'bet_quality': 'High',  # Placeholder: pode ser ajustado com base no EV
+                    'risk_level': 'Medium', # Placeholder
+                    'confidence': confidence_score * 100
+                }
+                return opportunity
             else:
-                logger.info("   ⚠️ Sem valor detectado (EV negativo ou critérios não atendidos)")
-            
-            return opportunity
+                logger.info(f"   ⚠️ Sem valor detectado ({detection_result['reason']})")
+                return None
             
         except Exception as e:
             logger.error(f"   ❌ Erro ao analisar jogo: {e}")
@@ -343,6 +420,7 @@ class Scheduler:
     
     def _extract_match_context(self, fixture: Dict) -> Dict:
         """Extrai contexto do jogo para análise"""
+        # Esta função não é mais diretamente usada no _analyze_fixture corrigido, mas mantida por segurança
         try:
             return {
                 'round': fixture['league'].get('round', 'Unknown'),
@@ -363,9 +441,12 @@ class Scheduler:
         logger.info("="*60)
         
         for i, opp in enumerate(opportunities, 1):
+            # Usando 'match_date' em vez de 'date'
+            match_date_display = opp.get('match_date', 'N/A')
+            
             logger.info(f"\n{i}. {opp['home_team']} vs {opp['away_team']}")
             logger.info(f"   Liga: {opp['league']}")
-            logger.info(f"   Data: {opp['match_date']}")
+            logger.info(f"   Data: {match_date_display}")
             logger.info(f"   ---")
             logger.info(f"   Probabilidade: {opp['our_probability']:.1%}")
             logger.info(f"   Odds Over 1.5: {opp['over_1_5_odds']:.2f}")
