@@ -17,7 +17,7 @@ from config.settings import Settings
 from src.api_client import APIClient 
 from src.data_collector import DataCollector
 from src.probability_calculator import ProbabilityCalculator 
-from src.value_detector import ValueDetector # Agora com o método rank_opportunities
+from src.value_detector import ValueDetector 
 from src.database import Database
 from src.telegram_notifier import TelegramNotifier
 
@@ -46,8 +46,6 @@ class MockAPIClient:
     def get_odds(self, fixture_id):
         """
         MOCK: Simula odds
-        Jogo 1386749 (Swansea vs Derby): Over 1.5 tem valor (Odd 2.05, P=55%)
-        Jogo 1386750 (Southampton vs Leicester): Over 1.5 tem P alta (85%), mas Odd baixa (1.25).
         """
         logger.info(f"Buscando odds para o jogo {fixture_id}...")
         if fixture_id == 1386749: 
@@ -132,8 +130,13 @@ class MockValueDetector:
         )
 
 class MockDatabase:
-    # Oportunidades agora devem usar 'match_id'
-    def save_opportunity(self, opp): logger.info(f"💾 Salvando oportunidade: {opp.get('home_team')} vs {opp.get('away_team')} ({opp.get('market')})")
+    # Oportunidades agora devem usar 'match_id' e ter 'implied_probability'
+    def save_opportunity(self, opp): 
+        if 'implied_probability' not in opp:
+             logger.error("❌ Erro ao salvar oportunidade: 'implied_probability'")
+             return
+        logger.info(f"💾 Salvando oportunidade: {opp.get('home_team')} vs {opp.get('away_team')} ({opp.get('market')})")
+
     def clear_old_data(self, days): pass
 
 class MockTelegramNotifier:
@@ -240,7 +243,7 @@ class Scheduler:
                 
                 for opportunity in new_opportunities:
                     opportunities.append(opportunity)
-                    # CORRIGIDO: Esta linha chama save_opportunity
+                    # A chamada para save_opportunity espera 'implied_probability'
                     self.db.save_opportunity(opportunity)
                     
                     if self.telegram:
@@ -344,6 +347,9 @@ class Scheduler:
                 detection_result = self.value_detector.detect_value(our_probability, market_odds)
                 fair_odd = detection_result['fair_odd']
                 
+                # NOVO: Calcula a probabilidade implícita do mercado (1 / Odds)
+                implied_probability = 1 / market_odds
+                
                 if detection_result['is_value']:
                     # =========================================================
                     # NOTIFICAÇÃO DE VALOR (Aposta com EV Positivo)
@@ -353,7 +359,7 @@ class Scheduler:
                     logger.info(f"   📊 Kelly Pura (F): {detection_result['pure_kelly_fraction']:.2f}%")
 
                     opportunity = {
-                        # CORRIGIDO: Usando 'match_id' para corrigir o erro do Database
+                        # Corrigido na iteração anterior
                         'match_id': fixture_id, 
                         'home_team': home_team,
                         'away_team': away_team,
@@ -362,6 +368,8 @@ class Scheduler:
                         'market': market_name, 
                         'our_probability': our_probability,
                         'market_odds': market_odds,
+                        # NOVO CAMPO REQUERIDO PELO BANCO DE DADOS
+                        'implied_probability': implied_probability, 
                         'expected_value': detection_result['expected_value'],
                         'recommended_stake': detection_result['suggested_stake'] * 100, 
                         'pure_kelly_fraction': detection_result['pure_kelly_fraction'] * 100, 
