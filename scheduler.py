@@ -16,7 +16,7 @@ from config.settings import Settings
 # Presume que APIClient fornece odds para 0.5 e 1.5
 from src.api_client import APIClient 
 from src.data_collector import DataCollector
-from src.probability_calculator import ProbabilityCalculator 
+from src.probability_calculator import ProbabilityCalculator # Agora com o método corrigido
 from src.value_detector import ValueDetector
 from src.database import Database
 from src.telegram_notifier import TelegramNotifier
@@ -44,23 +44,58 @@ class MockAPIClient:
     def __init__(self, key): pass
     def get_fixtures_by_date(self, date, league_id): return []
     def get_odds(self, fixture_id):
-        return {'over_0_5_odds': 1.15, 'over_1_5_odds': 2.10}
-    def collect_team_data(self, team_id, league_id, season): return {'goals_for_avg': 1.8, 'over_1_5_rate': 0.85, 'offensive_score': 0.75}
-    def collect_h2h_data(self, team1_id, team2_id): return {'h2h_over_1_5_rate': 0.78}
+        """
+        MOCK: Simula odds
+        Jogo 1386749 (Swansea vs Derby): Over 1.5 tem valor (Odd 2.05, P=55%)
+        Jogo 1386750 (Southampton vs Leicester): Over 1.5 tem P alta (85%), mas Odd baixa (1.25).
+        """
+        logger.info(f"Buscando odds para o jogo {fixture_id}...")
+        if fixture_id == 1386749: 
+             return {'over_0_5_odds': 1.05, 'over_1_5_odds': 2.05} 
+        elif fixture_id == 1386750: 
+             return {'over_0_5_odds': 1.10, 'over_1_5_odds': 1.25} 
+        else:
+             return {'over_0_5_odds': 1.15, 'over_1_5_odds': 2.10}
+
+
+    def collect_team_data(self, team_id: int, league_id: int, season: int) -> Dict[str, float]:
+        """Retorna dados MOCK em caso de falha da API (403 Forbidden)."""
+        logger.warning(f"   ⚠️ Usando MOCK DATA para estatísticas da Equipa {team_id} devido a falha da API.")
+        return {
+            'goals_for_avg': 1.8,         
+            'over_1_5_rate': 0.85,        
+            'offensive_score': 0.75,      
+        }
+
+    def collect_h2h_data(self, team1_id: int, team2_id: int) -> Dict[str, float]:
+        """Retorna dados MOCK em caso de falha da API."""
+        logger.warning(f"   ⚠️ Usando MOCK DATA para H2H devido a falha da API.")
+        return {'h2h_over_1_5_rate': 0.78}
 
 class MockDataCollector:
     def __init__(self, client): self.client = client
     def collect_team_data(self, team_id, league_id, season): 
-        # Simula o resultado final processado que seria esperado
-        return {'goals_for_avg': 1.5, 'over_1_5_rate': 0.8, 'offensive_score': 0.7}
+        # Chama o cliente real para obter o MOCK data
+        return self.client.collect_team_data(team_id, league_id, season)
     def collect_h2h_data(self, team1_id, team2_id): 
-        return {'over_1_5_rate': 0.75}
+        return self.client.collect_h2h_data(team1_id, team2_id)
+
 
 class MockProbabilityCalculator:
-    def calculate_probability(self, data, market):
-        # Simula probabilidades diferentes para os dois jogos MOCK
-        if data['fixture_id'] == 1386749 and market == 'Over 1.5': return 0.55 # P=55%
-        if data['fixture_id'] == 1386750 and market == 'Over 1.5': return 0.85 # P=85%
+    # IMPORTANTE: A assinatura agora inclui 'market'
+    def calculate_probability(self, data: Dict[str, Any], market: str) -> float:
+        """Simula probabilidades para diferentes mercados e jogos MOCK."""
+        
+        # Jogo 1386749: Swansea vs Derby (Over 1.5: 55%, Odd 2.05 -> Valor)
+        if data['fixture_id'] == 1386749: 
+            if market == 'Over 1.5': return 0.55 
+            if market == 'Over 0.5': return 0.98 
+            
+        # Jogo 1386750: Southampton vs Leicester (Over 1.5: 85%, Odd 1.25 -> EV Negativo/Sugestão)
+        if data['fixture_id'] == 1386750: 
+            if market == 'Over 1.5': return 0.85
+            if market == 'Over 0.5': return 0.99
+            
         return 0.70 # Default
 
 class MockDatabase:
@@ -74,7 +109,7 @@ class MockTelegramNotifier:
         # Notificação de Valor
         logger.info(f"📢 NOTIFICAÇÃO: Valor ENCONTRADO em {opp['home_team']} vs {opp['away_team']} ({opp['market']})")
     def notify_suggestion(self, opp):
-        # Notificação de Sugestão
+        # Notificação de Sugestão (Odd Justa)
         logger.info(f"💡 SUGESTÃO: Odd Justa {opp['fair_odd']:.2f} (Mercado: {opp['market_odds']:.2f})")
     def notify_daily_summary(self, opps, total): pass
     def notify_error(self, error): pass
@@ -85,7 +120,6 @@ if not hasattr(globals().get('Settings', None), 'API_FOOTBALL_KEY'):
 if not hasattr(globals().get('APIClient', None), 'get_fixtures_by_date'):
     APIClient = MockAPIClient
 if not hasattr(globals().get('DataCollector', None), 'collect_team_data'):
-    # Usa o MockDataCollector que se parece com o seu código
     DataCollector = MockDataCollector
 if not hasattr(globals().get('ProbabilityCalculator', None), 'calculate_probability'):
     ProbabilityCalculator = MockProbabilityCalculator
@@ -96,11 +130,10 @@ if not hasattr(globals().get('TelegramNotifier', None), 'notify_opportunity'):
 # --------------------------------------------------------------------------------
 
 class Scheduler:
-    # ... (Restante do __init__ e self_ping permanece igual)
+    
     def __init__(self):
         try:
             self.settings = Settings()
-            # MOCK APIClient, DataCollector, ProbabilityCalculator, etc.
             # O APIClient agora tem o método collect_team_data e o DataCollector chama-o
             self.api_client = APIClient(self.settings.API_FOOTBALL_KEY)
             self.data_collector = DataCollector(self.api_client) 
@@ -141,7 +174,6 @@ class Scheduler:
         start_time = time.time()
         
         try:
-            # 1. Busca jogos do dia - FORÇANDO UTC
             now_utc = datetime.now(timezone.utc)
             today = now_utc.date().isoformat()
             
@@ -197,11 +229,6 @@ class Scheduler:
             logger.error(f"❌ Erro na análise diária: {e}")
             
     
-    def _get_today_fixtures(self, today: str) -> List[Dict]:
-        all_fixtures = []
-        # ... (Lógica de busca omitida por brevidade)
-        return all_fixtures # Retorna lista real de fixtures na sua implementação
-
     def _analyze_fixture(self, fixture: Dict) -> List[Dict[str, Any]]:
         """
         Analisa um jogo completo, verificando múltiplos mercados.
@@ -220,7 +247,7 @@ class Scheduler:
             logger.info(f"⚽ {home_team} vs {away_team}")
             logger.info(f"   Liga: {league_name} | ID: {fixture_id}")
             
-            # 1. Coleta dados (Usando MOCKs para simular dados do seu LOG)
+            # 1. Coleta dados 
             logger.info("   📊 Coletando dados dos times...")
             # O DataCollector agora chama o método correto no APIClient
             home_data = self.data_collector.collect_team_data(fixture['teams']['home']['id'], fixture['league']['id'], fixture['league']['season'])
@@ -316,13 +343,7 @@ class Scheduler:
                     # =========================================================
                     # MODO SUGESTÃO (EV Negativo, mas informa Odd Justa)
                     # =========================================================
-                    # Condição: Odd Justa é maior que 1.0 E a Odd do mercado está significativamente abaixo da Odd Justa.
-                    # Usamos uma margem de 10% (0.9) para notificar sugestões
-                    
-                    # Se a Odd Justa for, por exemplo, 1.33 (P=75%), e a Odd do Mercado for 1.25, 
-                    # market_odds < fair_odd * 0.9 (1.25 < 1.33 * 0.9 = 1.197). Não notifica, pois está próximo.
-                    
-                    # Vamos usar uma regra mais simples: se a Odd Justa for >= 1.30 (P <= 77%) e o EV for negativo.
+                    # Usamos uma regra simples: se a Odd Justa for >= 1.30 (P <= 77%) e o EV for negativo.
                     if fair_odd >= 1.30 and detection_result['expected_value'] < 0:
                          
                         logger.info(f"   💡 SUGESTÃO: Odd Justa {market_name}: {fair_odd:.2f}. EV Negativo.")
