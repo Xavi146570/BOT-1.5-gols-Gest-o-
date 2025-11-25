@@ -7,7 +7,8 @@ import logging
 import time
 import requests
 from datetime import datetime, timezone, timedelta
-from typing import List, Dict, Any
+# IMPORTANTE: Adicionado 'Union' para compatibilidade com Python < 3.10
+from typing import List, Dict, Any, Union 
 import schedule
 import threading
 
@@ -248,7 +249,7 @@ class Scheduler:
         
         return all_fixtures
     
-    def _analyze_fixture(self, fixture: Dict) -> Dict[str, Any] | None:
+    def _analyze_fixture(self, fixture: Dict) -> Union[Dict[str, Any], None]:
         """
         Analisa um jogo completo
         
@@ -301,7 +302,8 @@ class Scheduler:
             # baseada em nomes comuns de chaves para alimentar o ProbabilityCalculator.
             
             # Exemplo de cálculo da Lambda (usando média de gols marcados)
-            avg_goals_home = home_data.get('goals_for_avg', 1.0) # Assume 1.0 se não encontrar
+            # OBS: É crucial que goals_for_avg exista no dicionário home_data/away_data
+            avg_goals_home = home_data.get('goals_for_avg', 1.0) 
             avg_goals_away = away_data.get('goals_for_avg', 1.0)
             lambda_value = (avg_goals_home + avg_goals_away) / 2.0
             
@@ -390,7 +392,9 @@ class Scheduler:
             if detection_result['is_value']:
                 logger.info(f"   ✅ VALOR DETECTADO!")
                 logger.info(f"   💵 EV: {detection_result['expected_value']:.2%}")
-                logger.info(f"   📊 Stake: {detection_result['suggested_stake']*100:.1f}%")
+                # Verifica se 'suggested_stake' existe antes de tentar acessar
+                suggested_stake = detection_result.get('suggested_stake', 0.0) 
+                logger.info(f"   📊 Stake: {suggested_stake*100:.1f}%")
 
                 # Monta o dicionário final de oportunidade (retorna para o loop principal)
                 opportunity = {
@@ -402,7 +406,7 @@ class Scheduler:
                     'our_probability': our_probability,
                     'over_1_5_odds': market_odds,
                     'expected_value': detection_result['expected_value'],
-                    'recommended_stake': detection_result['suggested_stake'] * 100,
+                    'recommended_stake': suggested_stake * 100,
                     'bet_quality': 'High',  # Placeholder: pode ser ajustado com base no EV
                     'risk_level': 'Medium', # Placeholder
                     'confidence': confidence_score * 100
