@@ -16,8 +16,8 @@ from config.settings import Settings
 # Presume que APIClient fornece odds para 0.5 e 1.5
 from src.api_client import APIClient 
 from src.data_collector import DataCollector
-from src.probability_calculator import ProbabilityCalculator # Agora com o método corrigido
-from src.value_detector import ValueDetector
+from src.probability_calculator import ProbabilityCalculator 
+from src.value_detector import ValueDetector # Agora com o método corrigido
 from src.database import Database
 from src.telegram_notifier import TelegramNotifier
 
@@ -82,7 +82,7 @@ class MockDataCollector:
 
 
 class MockProbabilityCalculator:
-    # IMPORTANTE: A assinatura agora inclui 'market'
+    # A assinatura inclui 'market'
     def calculate_probability(self, data: Dict[str, Any], market: str) -> float:
         """Simula probabilidades para diferentes mercados e jogos MOCK."""
         
@@ -97,6 +97,29 @@ class MockProbabilityCalculator:
             if market == 'Over 0.5': return 0.99
             
         return 0.70 # Default
+
+class MockValueDetector:
+    """Mock da classe ValueDetector, corrigida para aceitar 2 argumentos posicionais."""
+    # Corrigido: Agora aceita 'probability' e 'market_odds'
+    def detect_value(self, probability: float, market_odds: float) -> Dict[str, Any]:
+        fair_odd = 1 / probability
+        expected_value = (probability * market_odds) - 1
+        is_value = expected_value > 0.05 # Simula o requisito de EV
+        
+        if market_odds > 1.0:
+            pure_kelly_fraction = expected_value / (market_odds - 1)
+        else:
+            pure_kelly_fraction = 0.0
+
+        suggested_stake = min(0.1, max(0.0, pure_kelly_fraction))
+
+        return {
+            'is_value': is_value,
+            'expected_value': expected_value,
+            'fair_odd': fair_odd,
+            'pure_kelly_fraction': pure_kelly_fraction,
+            'suggested_stake': suggested_stake 
+        }
 
 class MockDatabase:
     def save_opportunity(self, opp): logger.info(f"💾 Salvando oportunidade: {opp['home_team']} vs {opp['away_team']} ({opp['market']})")
@@ -123,6 +146,9 @@ if not hasattr(globals().get('DataCollector', None), 'collect_team_data'):
     DataCollector = MockDataCollector
 if not hasattr(globals().get('ProbabilityCalculator', None), 'calculate_probability'):
     ProbabilityCalculator = MockProbabilityCalculator
+# Uso do MockValueDetector corrigido
+if not hasattr(globals().get('ValueDetector', None), 'detect_value'):
+    ValueDetector = MockValueDetector
 if not hasattr(globals().get('Database', None), 'save_opportunity'):
     Database = MockDatabase
 if not hasattr(globals().get('TelegramNotifier', None), 'notify_opportunity'):
@@ -308,6 +334,7 @@ class Scheduler:
                 logger.info(f"   💵 Odds {market_name}: {market_odds:.2f}")
                 
                 # 4. Detecta valor (Este método retorna a fair_odd SEMPRE)
+                # A linha abaixo está correta, agora que o ValueDetector foi atualizado
                 detection_result = self.value_detector.detect_value(our_probability, market_odds)
                 
                 # Odd Justa calculada
@@ -380,7 +407,7 @@ class Scheduler:
             logger.info(f"   ---")
             logger.info(f"   Probabilidade: {opp['our_probability']:.1%}")
             logger.info(f"   Odds Mercado: {opp['market_odds']:.2f}")
-            logger.info(f"   Expected Value: {opp['expected_value']:.2%}")
+            logger.info(f"   Expected Value: {opp['expected_value']:.2f}")
             logger.info(f"   Kelly Pura (F): {opp['pure_kelly_fraction']:.2f}%") 
 
     def update_results(self): pass
