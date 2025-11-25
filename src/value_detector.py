@@ -1,152 +1,77 @@
-"""
-Value Detector - Sistema Over 1.5
-"""
+# -*- coding: utf-8 -*-
+from typing import Dict, Any
 
-import logging
-from typing import Dict, List, Optional, Tuple
-from datetime import datetime
+# ==============================================================================
+# CRITÉRIOS DE DETECÇÃO DE VALOR AJUSTADOS PARA OVER 1.5
+# Estes parâmetros controlam o rigor da filtragem de oportunidades (EV+)
+# ==============================================================================
 
-logger = logging.getLogger(__name__)
+# Ajuste do Range de Odds: Aumentado de 1.10 para 1.35 para focar em retornos
+# mais significativos e evitar odds com baixo EV potencial.
+MIN_PROBABILITY: float = 0.65  # Probabilidade mínima do nosso sistema (65%)
+MIN_ODDS: float = 1.35         # Odds Mínimas Requeridas (AUMENTADO de 1.10 para 1.35)
+MAX_ODDS: float = 2.50         # Odds Máximas Requeridas (Acima disso, o risco é muito alto para Over 1.5)
+MIN_EXPECTED_VALUE: float = 0.05  # Valor Esperado Mínimo de +5%
+MIN_CONFIDENCE_SCORE: float = 0.60 # Pontuação de Confiança da Análise Mínima (60%)
 
 
 class ValueDetector:
-    """Detecta oportunidades com valor"""
-    
-    MIN_CONFIDENCE = 0.60
-    MIN_EV = 0.05
-    MIN_PROBABILITY = 0.65
-    MAX_ODDS = 2.50
-    MIN_ODDS = 1.10
-    
-    def __init__(self):
-        self.kelly_fraction = 0.25
-    
-    def analyze_match(self, match_data: Dict, probability_data: Dict, odds_data: Dict) -> Optional[Dict]:
-        """Analisa jogo e detecta valor"""
-        try:
-            our_probability = probability_data.get('probability', 0)
-            confidence = probability_data.get('confidence', 0)
-            over_odds = odds_data.get('over_1_5_odds')
-            
-            if not over_odds or over_odds < self.MIN_ODDS:
-                return None
-            
-            if not self._meets_criteria(our_probability, confidence, over_odds):
-                return None
-            
-            implied_probability = 1.0 / over_odds
-            edge = our_probability - implied_probability
-            expected_value = (our_probability * over_odds) - 1.0
-            kelly_stake = self._calculate_kelly_stake(our_probability, over_odds)
-            bet_quality = self._classify_bet_quality(expected_value, confidence)
-            risk_level = self._calculate_risk_level(our_probability, confidence)
-            
-            return {
-                'match_id': match_data.get('fixture_id'),
-                'home_team': match_data.get('home_team'),
-                'away_team': match_data.get('away_team'),
-                'league': match_data.get('league'),
-                'match_date': match_data.get('date'),
-                'our_probability': round(our_probability, 4),
-                'implied_probability': round(implied_probability, 4),
-                'confidence': round(confidence, 2),
-                'over_1_5_odds': round(over_odds, 2),
-                'edge': round(edge, 4),
-                'expected_value': round(expected_value, 4),
-                'kelly_stake': round(kelly_stake, 4),
-                'recommended_stake': round(kelly_stake * 100, 1),
-                'bet_quality': bet_quality,
-                'risk_level': risk_level,
-                'probability_breakdown': probability_data.get('breakdown', {}),
-                'analyzed_at': datetime.now().isoformat()
-            }
-        except Exception as e:
-            logger.error(f"Erro ao analisar jogo: {e}")
-            return None
-    
-    def _meets_criteria(self, probability: float, confidence: float, odds: float) -> bool:
-        if probability < self.MIN_PROBABILITY:
-            return False
-        if confidence < self.MIN_CONFIDENCE:
-            return False
-        if odds > self.MAX_ODDS or odds < self.MIN_ODDS:
-            return False
-        ev = (probability * odds) - 1.0
-        if ev < self.MIN_EV:
-            return False
-        return True
-    
-    def _calculate_kelly_stake(self, probability: float, odds: float) -> float:
-        try:
-            b = odds - 1.0
-            p = probability
-            q = 1.0 - p
-            kelly = (b * p - q) / b
-            fractional_kelly = kelly * self.kelly_fraction
-            return max(0.0, min(fractional_kelly, 0.10))
-        except Exception:
-            return 0.01
-    
-    def _classify_bet_quality(self, ev: float, confidence: float) -> str:
-        score = (ev * 0.6) + (confidence/100 * 0.4)
-        if score >= 0.20 and confidence >= 80:
-            return "EXCELENTE"
-        elif score >= 0.15 and confidence >= 70:
-            return "MUITO BOA"
-        elif score >= 0.10 and confidence >= 60:
-            return "BOA"
-        else:
-            return "REGULAR"
-    
-    def _calculate_risk_level(self, probability: float, confidence: float) -> str:
-        risk_score = 0
-        if probability < 0.70:
-            risk_score += 2
-        if confidence < 70:
-            risk_score += 2
-        if risk_score == 0:
-            return "BAIXO"
-        elif risk_score <= 2:
-            return "MODERADO"
-        else:
-            return "ALTO"
+    """
+    Classe responsável por aplicar os critérios e determinar se uma aposta
+    no mercado Over 1.5 Gols tem Valor Esperado Positivo (EV+).
+    """
 
-# ADICIONE ESTE MÉTODO AQUI:
-    def rank_opportunities(
-        self,
-        opportunities: List[Dict]
-    ) -> List[Dict]:
+    def calculate_expected_value(self, our_probability: float, market_odds: float) -> float:
         """
-        Rankeia oportunidades por qualidade
-        
-        Ordena por: EV × Confiança
+        Calcula o Valor Esperado (EV)
+        Fórmula: EV = (Probabilidade * Odds) - 1
+        """
+        return (our_probability * market_odds) - 1.0
+
+    def detect_value(self, game_data: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Aplica todos os filtros para encontrar oportunidades de EV+.
         
         Args:
-            opportunities: Lista de oportunidades
+            game_data: Dicionário contendo 'our_probability' e 'over_1_5_odds'.
             
         Returns:
-            Lista ordenada por ranking
+            Dicionário com o resultado da detecção (True/False) e métricas.
         """
-        try:
-            if not opportunities:
-                return []
-            
-            # Adiciona score de ranking
-            for opp in opportunities:
-                ev = opp.get('expected_value', 0)
-                conf = opp.get('confidence', 0) / 100
-                opp['ranking_score'] = ev * conf
-            
-            # Ordena por score (maior primeiro)
-            ranked = sorted(
-                opportunities,
-                key=lambda x: x.get('ranking_score', 0),
-                reverse=True
-            )
-            
-            return ranked
-            
-        except Exception as e:
-            logger.error(f"Erro ao rankear oportunidades: {e}")
-            return opportunities
+        
+        our_probability = game_data.get('our_probability', 0.0)
+        market_odds = game_data.get('over_1_5_odds', 0.0)
+        confidence_score = game_data.get('confidence_score', 0.0) # Assume-se que o sistema calcula a confiança
 
+        # 1. Filtragem por Range de Odds
+        if not (MIN_ODDS <= market_odds <= MAX_ODDS):
+            return {"is_value": False, "reason": "Odds fora do range [1.35 - 2.50]"}
+
+        # 2. Filtragem por Probabilidade Mínima do Sistema
+        if our_probability < MIN_PROBABILITY:
+            return {"is_value": False, "reason": "Probabilidade abaixo do mínimo (65%)"}
+
+        # 3. Filtragem por Confiança Mínima
+        if confidence_score < MIN_CONFIDENCE_SCORE:
+            return {"is_value": False, "reason": "Confiança da análise abaixo do mínimo (60%)"}
+
+        # 4. Cálculo e Filtragem do Expected Value (EV)
+        expected_value = self.calculate_expected_value(our_probability, market_odds)
+        
+        if expected_value < MIN_EXPECTED_VALUE:
+            return {"is_value": False, "reason": f"EV abaixo do mínimo (+{MIN_EXPECTED_VALUE*100:.0f}%)"}
+            
+        # 5. Oportunidade de Valor Encontrada
+        return {
+            "is_value": True,
+            "expected_value": expected_value,
+            "suggested_stake": self._calculate_stake(our_probability, market_odds, expected_value) # Função fictícia
+        }
+
+    # Função placeholder para o Kelly Criterion (A ser implementada)
+    def _calculate_stake(self, prob, odds, ev):
+        """Calcula a stake usando uma fração do Kelly Criterion."""
+        # Fórmula simplificada: (Odds * Probabilidade - 1) / (Odds - 1)
+        kelly_fraction = max(0.0, (prob * odds - 1) / (odds - 1))
+        # Para evitar volatilidade excessiva, usamos uma fração (ex: 1/4)
+        return kelly_fraction * 0.25 # Retorna a porcentagem do bankroll a apostar
