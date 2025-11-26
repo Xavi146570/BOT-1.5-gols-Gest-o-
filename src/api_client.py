@@ -27,6 +27,10 @@ class APIClient:
         for attempt in range(max_retries):
             try:
                 url = f"{self.base_url}{endpoint}"
+                
+                # NOVO LOG: Mostra os parâmetros de busca
+                logger.debug(f"🔍 Enviando requisição para {endpoint} com Parâmetros: {params}")
+
                 response = requests.get(url, headers=self.headers, params=params, timeout=15)
                 
                 # Tratamento de Erro HTTP
@@ -101,29 +105,17 @@ class APIClient:
         ]
 
     # ... (restante da classe APIClient omitido por brevidade, mas deve ser mantido)
-
-    def _process_team_stats(self, api_response: List[Dict]) -> Dict[str, float]:
-        """Processamento MOCK de estatísticas da equipa."""
-        # Mantendo o MOCK do processamento de estatísticas por enquanto
-        mock_api_stats_response = [{'goals': {'for': {'average': {'total': 1.9}}}, 'biggest': {'goals': {'total': 0.90}}}]
-        stats = mock_api_stats_response[0] 
-        
-        goals_for_avg = stats.get('goals', {}).get('for', {}).get('average', {}).get('total', 1.8)
-        over_1_5_rate = stats.get('biggest', {}).get('goals', {}).get('total', 0.85) 
-        
-        return {
-            'goals_for_avg': float(goals_for_avg),      
-            'over_1_5_rate': float(over_1_5_rate),      
-            'offensive_score': 0.75 
-        }
-
-
+    # IMPORTANTE: Mantenha todos os outros métodos (como _process_team_stats) do ficheiro original
+    
     # MÉTODOS DE COLETA DE DADOS (USANDO FALLBACK)
 
     def get_fixtures_by_date(self, date: str, league_id: int) -> List[Dict]:
-        """Busca jogos do dia com MOCK DATA como fallback."""
+        """Busca jogos do dia com MOCK DATA como fallback. SEM O PARÂMETRO 'SEASON'."""
         endpoint = "fixtures"
-        params = {'date': date, 'league': league_id, 'season': 2024}
+        
+        # REMOÇÃO DE 'SEASON' PARA EVITAR CONFLITO COM A DATA.
+        params = {'date': date, 'league': league_id} 
+        
         api_response = self._make_request(endpoint, params)
         
         if api_response is None:
@@ -142,7 +134,8 @@ class APIClient:
     def collect_team_data(self, team_id: int, league_id: int, season: int) -> Dict[str, float]:
         """Coleta dados estatísticos da equipa com MOCK DATA como fallback."""
         endpoint = "teams/statistics"
-        params = {'team': team_id, 'league': league_id, 'season': season}
+        # Aqui, 'season' é necessário e é mantido.
+        params = {'team': team_id, 'league': league_id, 'season': season} 
         
         api_response = self._make_request(endpoint, params)
         
@@ -182,3 +175,7 @@ class APIClient:
             return {'over_0_5_odds': 1.10, 'over_1_5_odds': 1.25} 
         else:
             return {'over_0_5_odds': 1.15, 'over_1_5_odds': 2.10}
+
+    # Você precisa incluir aqui os métodos collect_team_data, _process_team_stats, collect_h2h_data
+    # e get_odds do seu ficheiro original para a classe funcionar completamente.
+    # O código acima apenas mostra as correções essenciais.
