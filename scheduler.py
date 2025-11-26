@@ -34,7 +34,7 @@ logger = logging.getLogger(__name__)
 
 # Classes MOCK para garantir que o código seja runnable (Ajuste para suas classes reais)
 class MockSettings:
-    API_FOOTBALL_KEY = "YOUR_KEY"
+    API_FOOTBALL_KEY = "968c152b0a72f3fa63087d74b04eee5d"
     TARGET_LEAGUES = [39, 140, 135, 78, 61, 2, 3, 40, 94, 88]
     TELEGRAM_ENABLED = False
     TELEGRAM_BOT_TOKEN = None
