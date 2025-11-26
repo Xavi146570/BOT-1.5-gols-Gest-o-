@@ -1,13 +1,18 @@
+# src/api_client.py
 from typing import Dict, Any, List, Optional
 import requests
 import time
 import logging
-import datetime
 
 logger = logging.getLogger("src.api_client")
 logger.setLevel(logging.INFO)
+if not logger.handlers:
+    handler = logging.StreamHandler()
+    fmt = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+    handler.setFormatter(fmt)
+    logger.addHandler(handler)
 
-# ➤ Lista das 20 ligas principais
+# Lista das 20 ligas principais (pode editar)
 TOP_20_LEAGUES = [
     39, 140, 135, 78, 61, 2, 3, 45, 71, 94,
     253, 88, 203, 179, 144, 141, 40, 262, 301, 235
@@ -16,213 +21,234 @@ TOP_20_LEAGUES = [
 
 class APIClient:
     """
-    Cliente para interagir com API-Sports V3 com fallback total:
-    ✔ Fixtures reais → senão MOCK
-    ✔ Stats reais → senão MOCK
-    ✔ Odds reais → senão MOCK → senão Exchange fallback
+    Cliente para API-Sports (v3.football.api-sports.io).
+    - get_fixtures_by_date(date, leagues) aceita uma lista de ligas (até 20).
+    - Sem mocks forçados: quando a API falha, métodos retornam []/None; a camada superior (analyzer) decide fallback.
+    - Possui fallback de odds para um método externo simulado (exchange) caso a API não forneça odds.
     """
 
-    def __init__(self, api_key: str):
-        self.api_key = api_key
-        self.base_url = "https://v3.football.api-sports.io/"
-        self.headers = {"x-apisports-key": self.api_key}
-        logger.info("APIClient inicializado com a chave configurada.")
+    API_BASE = "https://v3.football.api-sports.io/"
 
-    # ----------------------------------------------------------------------
-    # 🔧 MÉTODO CENTRAL: REQUISIÇÃO COM TRATAMENTO, RETRY, FALLBACK TOTAL
-    # ----------------------------------------------------------------------
+    def __init__(self, api_key: str, max_retries: int = 3, timeout: int = 15):
+        self.api_key = api_key or ""
+        self.headers = {'x-apisports-key': self.api_key} if self.api_key else {}
+        self.max_retries = max_retries
+        self.timeout = timeout
 
-    def _make_request(self, endpoint: str, params: Dict[str, Any]) -> Optional[List[Dict]]:
-        max_retries = 3
+        if self.api_key:
+            logger.info("Conectado ao cliente da API de Futebol e cabeçalho de autenticação configurado.")
+        else:
+            logger.warning("API key vazia. Chamadas para API-Sports irão falhar sem chave.")
 
-        for attempt in range(max_retries):
+    def _make_request(self, endpoint: str, params: Dict[str, Any]) -> Optional[Any]:
+        url = f"{self.API_BASE.rstrip('/')}/{endpoint.lstrip('/')}"
+        for attempt in range(1, self.max_retries + 1):
             try:
-                url = f"{self.base_url}{endpoint}"
-                response = requests.get(url, headers=self.headers, params=params, timeout=15)
-
-                # 403 → Authentication problem
-                if response.status_code == 403:
-                    logger.error("❌ 403 Forbidden — API key inválida ou expirada.")
+                resp = requests.get(url, headers=self.headers, params=params, timeout=self.timeout)
+                if resp.status_code == 403:
+                    logger.error("❌ Erro 403 — chave inválida ou sem permissões.")
                     return None
-
-                # 429 → Rate limit
-                if response.status_code == 429:
-                    delay = 5 * (attempt + 1)
-                    logger.warning(
-                        f"⚠️ 429 Rate Limit — tentativa {attempt+1}/{max_retries}, aguardando {delay}s..."
-                    )
-                    time.sleep(delay)
+                if resp.status_code == 429:
+                    wait = 2 ** attempt
+                    logger.warning(f"⚠️ Rate limit 429 — tentativa {attempt}/{self.max_retries}. Esperando {wait}s.")
+                    time.sleep(wait)
                     continue
-
-                # Any other code > 399
-                response.raise_for_status()
-
-                data = response.json()
-
-                if data.get("errors"):
-                    logger.error(f"❌ API retornou erro interno: {data['errors']}")
+                resp.raise_for_status()
+                data = resp.json()
+                # API-Sports devolve { "results": N, "response": [...] }
+                if isinstance(data, dict) and data.get('errors'):
+                    logger.error(f"❌ Erros na resposta da API: {data.get('errors')}")
                     return None
-
-                if data.get("results") == 0:
-                    logger.info(f"⚠️ API retornou 0 resultados para {endpoint}.")
-                    return []
-
-                logger.info(
-                    f"✅ Sucesso: {data['results']} resultados obtidos para {endpoint}."
-                )
-                return data["response"]
-
+                # Normalizar retorno
+                return data.get('response', data)
             except requests.exceptions.RequestException as e:
-                logger.error(f"❌ Falha na requisição ({endpoint}): {e}")
-                time.sleep(2)
-
+                logger.error(f"❌ RequestException para {endpoint}: {e}")
+                time.sleep(1 + attempt)
+            except Exception as e:
+                logger.error(f"❌ Erro inesperado para {endpoint}: {e}")
+                break
         logger.error("❌ Todas as tentativas falharam.")
         return None
 
-    # ----------------------------------------------------------------------
-    # 🎭 MOCKS: FIXTURES, STATS, ODDS
-    # ----------------------------------------------------------------------
+    # -------------------------
+    # Fixtures: permite lista de ligas
+    # -------------------------
+    def get_fixtures_by_date(self, date: str, leagues: Optional[List[int]] = None) -> List[Dict[str, Any]]:
+        """
+        date: 'YYYY-MM-DD'
+        leagues: lista de league IDs (se None, buscar todas as ligas suportadas pela API para a data)
+        Retorna lista de fixtures (possuem estrutura da API-Sports) ou [].
+        """
+        results: List[Dict[str, Any]] = []
 
-    def _get_fixtures_mock_data(self, date: str) -> List[Dict]:
-        fixture_date_time = f"{date}T19:45:00+00:00"
+        if leagues:
+            if len(leagues) > 20:
+                logger.warning("Recebida lista de ligas > 20, truncando para os primeiros 20.")
+                leagues = leagues[:20]
+            for lid in leagues:
+                logger.info(f"Buscando fixtures para {date} | league={lid}")
+                resp = self._make_request("fixtures", params={'date': date, 'league': lid})
+                if resp is None:
+                    logger.warning(f"Falha ao buscar fixtures para liga {lid} (retornou None).")
+                    continue
+                if isinstance(resp, list):
+                    results.extend(resp)
+        else:
+            logger.info(f"Buscando fixtures para {date} em todas as ligas.")
+            resp = self._make_request("fixtures", params={'date': date})
+            if resp is None:
+                logger.warning("Falha ao buscar fixtures (todas as ligas).")
+                return []
+            if isinstance(resp, list):
+                results = resp
 
-        return [
-            {
-                "fixture": {
-                    "id": 1386749,
-                    "date": fixture_date_time,
-                    "venue": {"name": "Liberty Stadium"},
-                },
-                "league": {"id": 40, "name": "Championship"},
-                "teams": {
-                    "home": {"id": 101, "name": "Swansea"},
-                    "away": {"id": 100, "name": "Derby"},
-                },
-            },
-            {
-                "fixture": {
-                    "id": 1386750,
-                    "date": fixture_date_time,
-                    "venue": {"name": "St Mary’s Stadium"},
-                },
-                "league": {"id": 40, "name": "Championship"},
-                "teams": {
-                    "home": {"id": 102, "name": "Southampton"},
-                    "away": {"id": 103, "name": "Leicester"},
-                },
-            },
-        ]
+        # remover duplicados por fixture id
+        unique = {}
+        for f in results:
+            try:
+                fid = int(f['fixture']['id'])
+            except Exception:
+                fid = id(f)
+            unique[fid] = f
+        fixtures_unique = list(unique.values())
+        logger.info(f"Fixtures coletadas: {len(fixtures_unique)}")
+        return fixtures_unique
 
-    def _get_mock_stats(self) -> Dict[str, float]:
-        return {
-            "goals_for_avg": 1.8,
-            "over_1_5_rate": 0.85,
-            "offensive_score": 0.75,
-        }
+    # -------------------------
+    # Team statistics (teams/statistics)
+    # -------------------------
+    def collect_team_data(self, team_id: int, league_id: int, season: int) -> Optional[Dict[str, Any]]:
+        params = {'team': team_id, 'league': league_id, 'season': season}
+        resp = self._make_request("teams/statistics", params=params)
+        if resp is None:
+            logger.warning(f"Falha ao obter stats para team {team_id} (league {league_id}).")
+            return None
 
-    def _get_mock_odds(self, fixture_id: int) -> Dict[str, float]:
-        if fixture_id == 1386749:
-            return {"over_0_5_odds": 1.05, "over_1_5_odds": 2.05}
-        elif fixture_id == 1386750:
-            return {"over_0_5_odds": 1.10, "over_1_5_odds": 1.25}
-        return None
+        # Defensive extraction — devolve raw e algumas métricas se possíveis
+        try:
+            data = resp if isinstance(resp, dict) else (resp[0] if isinstance(resp, list) and resp else resp)
+            # Tentativa robusta de extrair médias
+            def dget(path_list):
+                node = data
+                for p in path_list:
+                    if node is None:
+                        return None
+                    if isinstance(node, list):
+                        node = node[0] if node else None
+                    if isinstance(node, dict):
+                        node = node.get(p)
+                    else:
+                        return None
+                return node
 
-    # ----------------------------------------------------------------------
-    # 🔥 EXCHANGE FALLBACK (simulação do mercado Betfair)
-    # ----------------------------------------------------------------------
+            gf = dget(['goals', 'for', 'total', 'average']) or dget(['team', 'statistics', 'goals_for_avg'])
+            ga = dget(['goals', 'against', 'total', 'average']) or dget(['team', 'statistics', 'goals_against_avg'])
+            over_15 = dget(['fixtures', 'goals', 'for', 'over_1_5']) or dget(['over_1_5_rate'])
+            over_25 = dget(['fixtures', 'goals', 'for', 'over_2_5']) or dget(['over_2_5_rate'])
+
+            # Normalizar tipos
+            def to_float(x):
+                try:
+                    return float(x)
+                except Exception:
+                    return None
+
+            result = {
+                'goals_for_avg': to_float(gf),
+                'goals_against_avg': to_float(ga),
+                'over_1_5_rate': to_float(over_15),
+                'over_2_5_rate': to_float(over_25),
+                'raw': data
+            }
+            logger.info(f"Estatísticas processadas para team {team_id}.")
+            return result
+        except Exception as e:
+            logger.error(f"Erro ao processar team stats: {e}")
+            return None
+
+    # -------------------------
+    # H2H
+    # -------------------------
+    def collect_h2h_data(self, team1_id: int, team2_id: int) -> Optional[Dict[str, Any]]:
+        resp = self._make_request("fixtures/headtohead", params={'h2h': f"{team1_id}-{team2_id}"})
+        if resp is None:
+            logger.warning("Falha ao obter H2H.")
+            return None
+
+        try:
+            matches = resp if isinstance(resp, list) else [resp]
+            total = 0
+            over15 = 0
+            over25 = 0
+            for m in matches:
+                sc_home = None
+                sc_away = None
+                try:
+                    sc_home = m.get('score', {}).get('fulltime', {}).get('home')
+                    sc_away = m.get('score', {}).get('fulltime', {}).get('away')
+                except Exception:
+                    continue
+                if sc_home is None or sc_away is None:
+                    continue
+                try:
+                    s = int(sc_home) + int(sc_away)
+                except Exception:
+                    continue
+                total += 1
+                if s > 1:
+                    over15 += 1
+                if s > 2:
+                    over25 += 1
+            if total == 0:
+                return {'h2h_over_1_5_rate': None, 'h2h_over_2_5_rate': None, 'h2h_matches': 0}
+            return {'h2h_over_1_5_rate': over15 / total, 'h2h_over_2_5_rate': over25 / total, 'h2h_matches': total}
+        except Exception as e:
+            logger.error(f"Erro ao processar H2H: {e}")
+            return None
+
+    # -------------------------
+    # Odds: tenta API-Sports -> fallback exchange simulado
+    # -------------------------
+    def get_odds(self, fixture_id: int) -> Dict[str, float]:
+        logger.info(f"Buscando odds para fixture {fixture_id} via API-Sports...")
+        resp = self._make_request("odds", params={'fixture': fixture_id})
+        parsed: Dict[str, float] = {}
+
+        if resp:
+            # Tentativa defensiva de parse
+            try:
+                # Estruturas variam; percorremos para encontrar mercados totals/over
+                for item in resp if isinstance(resp, list) else [resp]:
+                    bookmakers = item.get('bookmakers') or item.get('bookmaker') or []
+                    for bk in bookmakers:
+                        markets = bk.get('bets') or bk.get('markets') or []
+                        for m in markets:
+                            nm = m.get('name', '') or m.get('key', '')
+                            values = m.get('values') or m.get('options') or []
+                            for v in values:
+                                label = str(v.get('value', '')).lower()
+                                odd = v.get('odd') or v.get('price') or v.get('odds')
+                                if odd is None:
+                                    continue
+                                odd = float(odd)
+                                if '0.5' in label and 'over' in label:
+                                    parsed.setdefault('over_0_5_odds', odd)
+                                if '1.5' in label and 'over' in label:
+                                    parsed.setdefault('over_1_5_odds', odd)
+                                if '2.5' in label and 'over' in label:
+                                    parsed.setdefault('over_2_5_odds', odd)
+                if parsed:
+                    logger.info("Odds extraídas da API-Sports.")
+                    return parsed
+            except Exception as e:
+                logger.warning(f"Erro a extrair odds da API-Sports: {e}")
+
+        # Fallback: exchange-simulado (approx)
+        logger.info("Odds não encontradas na API-Sports — a usar fallback exchange simulado.")
+        return self._external_exchange_odds(fixture_id)
 
     def _external_exchange_odds(self, fixture_id: int) -> Dict[str, float]:
-        logger.warning(f"⚠️ Usando fallback de EXCHANGE para jogo {fixture_id}.")
-        return {
-            "over_0_5_odds": round(1.06 + (fixture_id % 4) * 0.01, 2),
-            "over_1_5_odds": round(1.24 + (fixture_id % 4) * 0.02, 2),
-        }
-
-    # ----------------------------------------------------------------------
-    # 📌 FIXTURES (agora para várias ligas)
-    # ----------------------------------------------------------------------
-
-    def get_fixtures_by_date(self, date: str, leagues: List[int]) -> List[Dict]:
-        fixtures = []
-
-        for league_id in leagues:
-            logger.info(f"📌 Buscando fixtures da liga {league_id}...")
-
-            api_response = self._make_request(
-                "fixtures", {"date": date, "league": league_id}
-            )
-
-            if api_response is None or api_response == []:
-                logger.warning(
-                    f"⚠️ Sem fixtures reais para liga {league_id}. Usando MOCK."
-                )
-                fixtures.extend(self._get_fixtures_mock_data(date))
-            else:
-                fixtures.extend(api_response)
-
-        return fixtures
-
-    # ----------------------------------------------------------------------
-    # 📊 ESTATÍSTICAS DE EQUIPA
-    # ----------------------------------------------------------------------
-
-    def collect_team_data(self, team_id: int, league_id: int, season: int) -> Dict[str, float]:
-        params = {"team": team_id, "league": league_id, "season": season}
-        api_response = self._make_request("teams/statistics", params)
-
-        if api_response is None or api_response == []:
-            logger.warning(
-                f"⚠️ Stats indisponíveis para equipa {team_id}. Usando MOCK."
-            )
-            return self._get_mock_stats()
-
-        return {
-            "goals_for_avg": 1.7,
-            "over_1_5_rate": 0.88,
-            "offensive_score": 0.78,
-        }
-
-    # ----------------------------------------------------------------------
-    # 🤝 H2H
-    # ----------------------------------------------------------------------
-
-    def collect_h2h_data(self, team1_id: int, team2_id: int) -> Dict[str, float]:
-        api_response = self._make_request(
-            "fixtures/headtohead", {"h2h": f"{team1_id}-{team2_id}"}
-        )
-
-        if api_response is None or api_response == []:
-            logger.warning("⚠️ H2H falhou. Usando MOCK.")
-            return {"h2h_over_1_5_rate": 0.78}
-
-        return {"h2h_over_1_5_rate": 0.82}
-
-    # ----------------------------------------------------------------------
-    # 💰 ODDS → Real → Mock → Exchange
-    # ----------------------------------------------------------------------
-
-    def get_odds(self, fixture_id: int) -> Dict[str, float]:
-        logger.info(f"💰 Buscando odds para o jogo {fixture_id}...")
-
-        # TENTATIVA 1 → API real
-        api_response = self._make_request("odds", {"fixture": fixture_id})
-
-        if api_response:
-            try:
-                bm = api_response[0]["bookmakers"][0]["bets"][0]["values"]
-                over_0_5 = float(bm[0]["odd"])
-                over_1_5 = float(bm[1]["odd"])
-                return {
-                    "over_0_5_odds": over_0_5,
-                    "over_1_5_odds": over_1_5,
-                }
-            except Exception:
-                logger.warning("⚠️ Estrutura inesperada de odds. Usando fallback.")
-
-        # TENTATIVA 2 → MOCK
-        mock = self._get_mock_odds(fixture_id)
-        if mock:
-            return mock
-
-        # TENTATIVA 3 → EXCHANGE fallback
-        return self._external_exchange_odds(fixture_id)
+        # Simulação simples, determinística pelo fixture_id
+        base_05 = 1.08 + (fixture_id % 5) * 0.01
+        base_15 = 1.25 + (fixture_id % 7) * 0.02
+        return {'over_0_5_odds': round(base_05, 2), 'over_1_5_odds': round(base_15, 2)}
