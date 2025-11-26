@@ -2,7 +2,7 @@ from typing import Dict, Any, List, Optional
 import requests
 import time
 import logging
-import datetime # Importado para uso no MOCK DATA
+import datetime 
 
 # Configuração básica de log
 logger = logging.getLogger('src.api_client')
@@ -12,7 +12,7 @@ logger.setLevel(logging.INFO)
 class APIClient:
     """
     Cliente para interagir com a API de estatísticas de futebol (API-Sports V3).
-    Implementa tratamento de erros (403, 404, 429) e fallback para MOCK DATA em caso de falha.
+    Implementa tratamento de erros e fallback para MOCK DATA em caso de falha.
     """
     def __init__(self, api_key: str):
         self.api_key = api_key
@@ -27,13 +27,8 @@ class APIClient:
         for attempt in range(max_retries):
             try:
                 url = f"{self.base_url}{endpoint}"
-                
-                # NOVO LOG: Mostra os parâmetros de busca
-                logger.debug(f"🔍 Enviando requisição para {endpoint} com Parâmetros: {params}")
-
                 response = requests.get(url, headers=self.headers, params=params, timeout=15)
                 
-                # Tratamento de Erro HTTP
                 if response.status_code == 403:
                     logger.error(f"❌ Erro de Autenticação (403 Forbidden). Chave inválida ou expirada.")
                     return None
@@ -44,11 +39,10 @@ class APIClient:
                     time.sleep(delay)
                     continue
 
-                response.raise_for_status() # Lança HTTPError para outros 4xx/5xx
+                response.raise_for_status()
 
                 data = response.json()
                 
-                # Verifica se a API retornou um erro interno (ex: erro de parâmetro)
                 if data.get('errors'):
                     logger.error(f"❌ Erro da API na resposta: {data['errors']}")
                     return None
@@ -63,26 +57,20 @@ class APIClient:
             except requests.exceptions.HTTPError as e:
                 logger.error(f"❌ Erro HTTP {response.status_code} na requisição para {endpoint}: {e}")
                 break
-            
             except requests.exceptions.RequestException as e:
                 logger.error(f"❌ Erro de conexão/timeout para {endpoint}: {e}")
                 time.sleep(5)
                 break
-                
             except Exception as e:
                 logger.error(f"❌ Erro inesperado na requisição da API {endpoint}: {e}")
                 break
         
         logger.error("❌ Todas as tentativas de requisição falharam.")
-        return None # Retorna None se todas as tentativas falharem
+        return None
 
 
     def _get_fixtures_mock_data(self, date: str) -> List[Dict]:
-        """
-        Dados MOCK para simular jogos de um dia. 
-        O campo 'date' é dinâmico, baseado no input.
-        """
-        # Usamos o 'date' de entrada para simular a hora do jogo (ex: 19:45:00)
+        """Dados MOCK para simular jogos de um dia."""
         fixture_date_time = f"{date}T19:45:00+00:00"
         
         return [
@@ -104,29 +92,41 @@ class APIClient:
             }
         ]
 
-    # ... (restante da classe APIClient omitido por brevidade, mas deve ser mantido)
-    # IMPORTANTE: Mantenha todos os outros métodos (como _process_team_stats) do ficheiro original
-    
+    def _process_team_stats(self, api_response: List[Dict]) -> Dict[str, float]:
+        """
+        [MÉTODO CORRIGIDO/REINSERIDO] Processamento MOCK de estatísticas da equipa.
+        Isto deve ser substituído pela sua lógica de cálculo de Poisson.
+        """
+        # Mantendo o MOCK do processamento de estatísticas por enquanto
+        if not api_response:
+             return {'goals_for_avg': 1.8, 'over_1_5_rate': 0.85, 'offensive_score': 0.75}
+
+        # Simulação de extração de dados da resposta real
+        # Na ausência de implementação do Poisson, retornamos valores fixos
+        return {
+            'goals_for_avg': 1.7,      
+            'over_1_5_rate': 0.88,      
+            'offensive_score': 0.78 
+        }
+
     # MÉTODOS DE COLETA DE DADOS (USANDO FALLBACK)
 
     def get_fixtures_by_date(self, date: str, league_id: int) -> List[Dict]:
-        """Busca jogos do dia com MOCK DATA como fallback. SEM O PARÂMETRO 'SEASON'."""
+        """Busca jogos do dia com MOCK DATA como fallback."""
         endpoint = "fixtures"
-        
-        # REMOÇÃO DE 'SEASON' PARA EVITAR CONFLITO COM A DATA.
+        # Busca apenas por data e liga (sem 'season' para evitar conflito de época)
         params = {'date': date, 'league': league_id} 
         
         api_response = self._make_request(endpoint, params)
         
-        if api_response is None:
-            # Caso 1: Falha grave de requisição (timeout, 403, 5xx)
-            logger.warning(f"⚠️ FALHA CRÍTICA na API. Usando MOCK DATA para jogos de {date}.")
+        if api_response is None or api_response == []:
+            # Caso 1 ou 2: Falha ou 0 resultados. Cai no MOCK.
+            if api_response == []:
+                logger.info(f"⚠️ A API não tem jogos agendados para a Liga {league_id} na data {date}. Usando MOCK DATA.")
+            else:
+                 logger.warning(f"⚠️ FALHA CRÍTICA na API para fixtures. Usando MOCK DATA para jogos de {date}.")
+
             return self._get_fixtures_mock_data(date)
-            
-        elif api_response == []:
-            # Caso 2: API funciona, mas não há jogos nessa data/liga
-            logger.info(f"✅ API contactada com sucesso, mas 0 jogos agendados para {date}.")
-            return []
             
         return api_response
 
@@ -139,8 +139,8 @@ class APIClient:
         
         api_response = self._make_request(endpoint, params)
         
-        if api_response is None:
-            logger.warning(f"    ⚠️ Usando MOCK DATA para estatísticas da Equipa {team_id} devido a falha da API.")
+        if api_response is None or api_response == []:
+            logger.warning(f"    ⚠️ Usando MOCK DATA para estatísticas da Equipa {team_id} devido a falha da API ou 0 resultados.")
             return {
                 'goals_for_avg': 1.8,       
                 'over_1_5_rate': 0.85,      
@@ -156,8 +156,8 @@ class APIClient:
         params = {'h2h': f"{team1_id}-{team2_id}"}
         api_response = self._make_request(endpoint, params)
 
-        if api_response is None:
-            logger.warning(f"    ⚠️ Usando MOCK DATA para H2H devido a falha da API.")
+        if api_response is None or api_response == []:
+            logger.warning(f"    ⚠️ Usando MOCK DATA para H2H devido a falha da API ou 0 resultados.")
             return {'h2h_over_1_5_rate': 0.78}
             
         # Simulação de processamento H2H
@@ -175,7 +175,3 @@ class APIClient:
             return {'over_0_5_odds': 1.10, 'over_1_5_odds': 1.25} 
         else:
             return {'over_0_5_odds': 1.15, 'over_1_5_odds': 2.10}
-
-    # Você precisa incluir aqui os métodos collect_team_data, _process_team_stats, collect_h2h_data
-    # e get_odds do seu ficheiro original para a classe funcionar completamente.
-    # O código acima apenas mostra as correções essenciais.
