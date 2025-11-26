@@ -1,14 +1,11 @@
 import os
 import logging
 import datetime
-# Importa do mesmo diretório src
 from api_client import APIClient  
-# Assume que a lógica de cálculo está em probability_calculator.py
 from probability_calculator import BettingCalculator 
 
 # --- Configuração de Logging ---
 logger = logging.getLogger('runner')
-# Aumentamos o nível de logging do módulo principal para garantir que os logs apareçam
 logger.setLevel(logging.INFO)
 
 # --- Variável de Ambiente OBRIGATÓRIA ---
@@ -17,7 +14,7 @@ API_KEY_NAME = "API_FOOTBALL_KEY"
 def main():
     """
     Função principal que carrega a chave da API e inicia o processo de análise.
-    Busca jogos 2 dias à frente, para aumentar a chance de encontrar agendamentos.
+    Busca jogos 5 dias à frente, para aumentar a chance de encontrar agendamentos (especialmente fins de semana).
     """
     
     # 1. Tenta carregar a chave da API da variável de ambiente
@@ -31,10 +28,14 @@ def main():
         
     
     # 2. CALCULA A DATA DE BUSCA
-    # Definido para +2 dias para aumentar a probabilidade de encontrar jogos agendados.
-    days_to_add = 2 
+    # Ajustado para +5 dias (um sábado/domingo é mais provável ter jogos)
+    days_to_add = 5 
     target_date = (datetime.date.today() + datetime.timedelta(days=days_to_add)).strftime("%Y-%m-%d")
-    logger.info(f"📅 A data de análise foi definida para: {target_date} (+{days_to_add} dias)")
+    
+    # LOG CRÍTICO para verificação
+    logger.info(f"============================================================")
+    logger.info(f"📅 A data de análise ATUAL é: {target_date} (+{days_to_add} dias)")
+    logger.info(f"============================================================")
     
     
     # 3. Inicializa o cliente e a calculadora
@@ -49,17 +50,23 @@ def main():
     fixtures = client.get_fixtures_by_date(date=target_date, league_id=league_id)
     
     if not fixtures:
-        logger.warning(f"Nenhum jogo encontrado para {target_date} e o MOCK DATA falhou. Finalizando.")
+        logger.warning(f"Nenhum jogo encontrado para {target_date}. Finalizando.")
         return
 
     opportunities = []
 
     for i, fixture in enumerate(fixtures, 1):
-        fixture_id = fixture['fixture']['id']
+        # Garante que os IDs sejam tratados como inteiros para a busca de odds
+        try:
+            fixture_id = int(fixture['fixture']['id'])
+            home_id = int(fixture['teams']['home']['id'])
+            away_id = int(fixture['teams']['away']['id'])
+        except (TypeError, KeyError, ValueError):
+            logger.error(f"❌ Erro ao extrair IDs da fixture {fixture.get('fixture', {}).get('id')}. Pulando.")
+            continue
+
         home_team = fixture['teams']['home']['name']
         away_team = fixture['teams']['away']['name']
-        home_id = fixture['teams']['home']['id']
-        away_id = fixture['teams']['away']['id']
         
         logger.info(f"\n--- Analisando jogo {i}/{len(fixtures)} ---")
         logger.info(f"⚽ {home_team} vs {away_team}")
