@@ -1,8 +1,3 @@
-"""
-Database Manager - Sistema Over 1.5
-Gerencia armazenamento de jogos, análises e oportunidades em SQLite
-"""
-
 import logging
 import sqlite3
 from datetime import datetime, timedelta
@@ -154,18 +149,29 @@ class Database:
         Returns:
             True se salvo com sucesso
         """
+        # Lista de chaves obrigatórias (NOT NULL no SQLite, exceto breakdown)
+        required_keys = [
+            'match_id', 'home_team', 'away_team', 'league', 'match_date',
+            'our_probability', 'implied_probability', 'confidence',
+            'over_1_5_odds', 'edge', 'expected_value',
+            'kelly_stake', 'recommended_stake', 'bet_quality', 'risk_level',
+            'analyzed_at'
+        ]
+        
+        # --- CORREÇÃO: VERIFICAÇÃO DE CHAVES OBRIGATÓRIAS ---
+        missing_keys = [key for key in required_keys if key not in opportunity]
+        if missing_keys:
+            logger.error(f"❌ Erro ao salvar oportunidade: Faltam chaves obrigatórias: {', '.join(missing_keys)}. Oportunidade não salva.")
+            # Loga a oportunidade para debug.
+            logger.debug(f"Dados recebidos: {opportunity}")
+            return False
+        # -----------------------------------------------------
+
         try:
             cursor = self.conn.cursor()
             
-            cursor.execute("""
-                INSERT OR REPLACE INTO opportunities (
-                    match_id, home_team, away_team, league, match_date,
-                    our_probability, implied_probability, confidence,
-                    over_1_5_odds, edge, expected_value,
-                    kelly_stake, recommended_stake, bet_quality, risk_level,
-                    probability_breakdown, analyzed_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """, (
+            # Monta a tupla de valores a ser inserida
+            values = (
                 opportunity['match_id'],
                 opportunity['home_team'],
                 opportunity['away_team'],
@@ -181,15 +187,27 @@ class Database:
                 opportunity['recommended_stake'],
                 opportunity['bet_quality'],
                 opportunity['risk_level'],
+                # probability_breakdown é opcional e usa .get() com fallback
                 json.dumps(opportunity.get('probability_breakdown', {})),
                 opportunity['analyzed_at']
-            ))
+            )
+
+            cursor.execute("""
+                INSERT OR REPLACE INTO opportunities (
+                    match_id, home_team, away_team, league, match_date,
+                    our_probability, implied_probability, confidence,
+                    over_1_5_odds, edge, expected_value,
+                    kelly_stake, recommended_stake, bet_quality, risk_level,
+                    probability_breakdown, analyzed_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, values)
             
             self.conn.commit()
             logger.info(f"✅ Oportunidade salva: {opportunity['home_team']} vs {opportunity['away_team']}")
             return True
             
         except Exception as e:
+            # Mantém o log de exceção genérica caso seja um erro SQLite ou de tipo
             logger.error(f"❌ Erro ao salvar oportunidade: {e}")
             return False
     
@@ -206,7 +224,8 @@ class Database:
             """, (today,))
             
             rows = cursor.fetchall()
-            return [dict(row) for row in rows]
+            # Converte a coluna probability_breakdown de JSON string para Dict
+            return [{**dict(row), 'probability_breakdown': json.loads(row['probability_breakdown']) if row['probability_breakdown'] else {}} for row in rows]
             
         except Exception as e:
             logger.error(f"❌ Erro ao buscar oportunidades do dia: {e}")
@@ -231,7 +250,8 @@ class Database:
             """, (start_date, end_date))
             
             rows = cursor.fetchall()
-            return [dict(row) for row in rows]
+            # Converte a coluna probability_breakdown de JSON string para Dict
+            return [{**dict(row), 'probability_breakdown': json.loads(row['probability_breakdown']) if row['probability_breakdown'] else {}} for row in rows]
             
         except Exception as e:
             logger.error(f"❌ Erro ao buscar oportunidades futuras: {e}")
