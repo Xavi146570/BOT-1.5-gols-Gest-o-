@@ -1,25 +1,43 @@
-# Use Python 3.9 slim
-FROM python:3.9-slim
+# -----------------------------
+# 1. BASE IMAGE
+# -----------------------------
+FROM python:3.10-slim
 
-# Set working directory
-WORKDIR /app
-
-# Install system dependencies
-RUN apt-get update && apt-get install -y \
+# -----------------------------
+# 2. SYSTEM DEPENDENCIES
+# -----------------------------
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
     gcc \
+    curl \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy requirements first (for caching)
+# -----------------------------
+# 3. WORKDIR
+# -----------------------------
+WORKDIR /app
+
+# -----------------------------
+# 4. COPY REQUIREMENTS
+# -----------------------------
 COPY requirements.txt .
 
-# Install Python dependencies
+# -----------------------------
+# 5. INSTALL PYTHON DEPENDENCIES
+# -----------------------------
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy application code
+# -----------------------------
+# 6. COPY PROJECT FILES
+# -----------------------------
 COPY . .
 
-# Expose port
-EXPOSE 10000
+# -----------------------------
+# 7. EXPOSE PORT
+# -----------------------------
+EXPOSE 8000
 
-# Run both scheduler and flask app
-CMD python scheduler.py & python app.py
+# -----------------------------
+# 8. START COMMAND FOR RENDER
+# -----------------------------
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
