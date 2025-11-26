@@ -1,23 +1,22 @@
 services:
   - type: web
-    name: futebol-ai
+    name: football-value-detector
     env: docker
     repo: https://github.com/SEU_USUARIO/SEU_REPOSITORIO
+    branch: main
     plan: free
     autoDeploy: true
-
-    # Render vai usar o Dockerfile automaticamente
     dockerfilePath: ./Dockerfile
-
     envVars:
       - key: PORT
-        value: 8000
-
-      - key: FOOTBALL_API_KEY
-        sync: false    # inserir manualmente no dashboard
-
-      - key: EXTERNAL_ODDS_KEY
+        value: "8000"
+      - key: API_FOOTBALL_KEY
         sync: false
-
-      - key: ENVIRONMENT
-        value: "production"
+      - key: ANALYSIS_INTERVAL_HOURS
+        value: "4"
+      - key: DAYS_TO_ADD
+        value: "5"
+      - key: LEAGUES
+        value: ""  # opcional: "39,140,78"
+      - key: SEASON
+        value: "2024"
