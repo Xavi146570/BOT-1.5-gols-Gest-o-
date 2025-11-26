@@ -7,12 +7,12 @@ import logging
 logger = logging.getLogger("src.api_client")
 logger.setLevel(logging.INFO)
 if not logger.handlers:
-    handler = logging.StreamHandler()
-    fmt = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-    handler.setFormatter(fmt)
-    logger.addHandler(handler)
+    import sys
+    h = logging.StreamHandler(sys.stdout)
+    h.setFormatter(logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s'))
+    logger.addHandler(h)
 
-# Lista das 20 ligas principais (pode editar)
+# Lista editável: top 20 ligas (pode alterar)
 TOP_20_LEAGUES = [
     39, 140, 135, 78, 61, 2, 3, 45, 71, 94,
     253, 88, 203, 179, 144, 141, 40, 262, 301, 235
@@ -20,13 +20,6 @@ TOP_20_LEAGUES = [
 
 
 class APIClient:
-    """
-    Cliente para API-Sports (v3.football.api-sports.io).
-    - get_fixtures_by_date(date, leagues) aceita uma lista de ligas (até 20).
-    - Sem mocks forçados: quando a API falha, métodos retornam []/None; a camada superior (analyzer) decide fallback.
-    - Possui fallback de odds para um método externo simulado (exchange) caso a API não forneça odds.
-    """
-
     API_BASE = "https://v3.football.api-sports.io/"
 
     def __init__(self, api_key: str, max_retries: int = 3, timeout: int = 15):
@@ -38,7 +31,7 @@ class APIClient:
         if self.api_key:
             logger.info("Conectado ao cliente da API de Futebol e cabeçalho de autenticação configurado.")
         else:
-            logger.warning("API key vazia. Chamadas para API-Sports irão falhar sem chave.")
+            logger.warning("API_FOOTBALL_KEY não fornecida — chamadas à API irão falhar sem chave.")
 
     def _make_request(self, endpoint: str, params: Dict[str, Any]) -> Optional[Any]:
         url = f"{self.API_BASE.rstrip('/')}/{endpoint.lstrip('/')}"
@@ -46,20 +39,18 @@ class APIClient:
             try:
                 resp = requests.get(url, headers=self.headers, params=params, timeout=self.timeout)
                 if resp.status_code == 403:
-                    logger.error("❌ Erro 403 — chave inválida ou sem permissões.")
+                    logger.error("❌ Erro 403 — chave inválida/sem permissões.")
                     return None
                 if resp.status_code == 429:
-                    wait = 2 ** attempt
+                    wait = min(60, 2 ** attempt)
                     logger.warning(f"⚠️ Rate limit 429 — tentativa {attempt}/{self.max_retries}. Esperando {wait}s.")
                     time.sleep(wait)
                     continue
                 resp.raise_for_status()
                 data = resp.json()
-                # API-Sports devolve { "results": N, "response": [...] }
                 if isinstance(data, dict) and data.get('errors'):
                     logger.error(f"❌ Erros na resposta da API: {data.get('errors')}")
                     return None
-                # Normalizar retorno
                 return data.get('response', data)
             except requests.exceptions.RequestException as e:
                 logger.error(f"❌ RequestException para {endpoint}: {e}")
@@ -74,13 +65,7 @@ class APIClient:
     # Fixtures: permite lista de ligas
     # -------------------------
     def get_fixtures_by_date(self, date: str, leagues: Optional[List[int]] = None) -> List[Dict[str, Any]]:
-        """
-        date: 'YYYY-MM-DD'
-        leagues: lista de league IDs (se None, buscar todas as ligas suportadas pela API para a data)
-        Retorna lista de fixtures (possuem estrutura da API-Sports) ou [].
-        """
         results: List[Dict[str, Any]] = []
-
         if leagues:
             if len(leagues) > 20:
                 logger.warning("Recebida lista de ligas > 20, truncando para os primeiros 20.")
@@ -124,10 +109,8 @@ class APIClient:
             logger.warning(f"Falha ao obter stats para team {team_id} (league {league_id}).")
             return None
 
-        # Defensive extraction — devolve raw e algumas métricas se possíveis
         try:
             data = resp if isinstance(resp, dict) else (resp[0] if isinstance(resp, list) and resp else resp)
-            # Tentativa robusta de extrair médias
             def dget(path_list):
                 node = data
                 for p in path_list:
@@ -146,7 +129,6 @@ class APIClient:
             over_15 = dget(['fixtures', 'goals', 'for', 'over_1_5']) or dget(['over_1_5_rate'])
             over_25 = dget(['fixtures', 'goals', 'for', 'over_2_5']) or dget(['over_2_5_rate'])
 
-            # Normalizar tipos
             def to_float(x):
                 try:
                     return float(x)
@@ -207,7 +189,7 @@ class APIClient:
             return None
 
     # -------------------------
-    # Odds: tenta API-Sports -> fallback exchange simulado
+    # Odds: API -> fallback exchange-simulado
     # -------------------------
     def get_odds(self, fixture_id: int) -> Dict[str, float]:
         logger.info(f"Buscando odds para fixture {fixture_id} via API-Sports...")
@@ -215,15 +197,12 @@ class APIClient:
         parsed: Dict[str, float] = {}
 
         if resp:
-            # Tentativa defensiva de parse
             try:
-                # Estruturas variam; percorremos para encontrar mercados totals/over
                 for item in resp if isinstance(resp, list) else [resp]:
                     bookmakers = item.get('bookmakers') or item.get('bookmaker') or []
                     for bk in bookmakers:
                         markets = bk.get('bets') or bk.get('markets') or []
                         for m in markets:
-                            nm = m.get('name', '') or m.get('key', '')
                             values = m.get('values') or m.get('options') or []
                             for v in values:
                                 label = str(v.get('value', '')).lower()
@@ -243,12 +222,10 @@ class APIClient:
             except Exception as e:
                 logger.warning(f"Erro a extrair odds da API-Sports: {e}")
 
-        # Fallback: exchange-simulado (approx)
         logger.info("Odds não encontradas na API-Sports — a usar fallback exchange simulado.")
         return self._external_exchange_odds(fixture_id)
 
     def _external_exchange_odds(self, fixture_id: int) -> Dict[str, float]:
-        # Simulação simples, determinística pelo fixture_id
         base_05 = 1.08 + (fixture_id % 5) * 0.01
         base_15 = 1.25 + (fixture_id % 7) * 0.02
         return {'over_0_5_odds': round(base_05, 2), 'over_1_5_odds': round(base_15, 2)}
