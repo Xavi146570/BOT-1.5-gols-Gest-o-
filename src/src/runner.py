@@ -8,6 +8,7 @@ from probability_calculator import BettingCalculator
 
 # --- Configuração de Logging ---
 logger = logging.getLogger('runner')
+# Aumentamos o nível de logging do módulo principal para garantir que os logs apareçam
 logger.setLevel(logging.INFO)
 
 # --- Variável de Ambiente OBRIGATÓRIA ---
@@ -16,7 +17,7 @@ API_KEY_NAME = "API_FOOTBALL_KEY"
 def main():
     """
     Função principal que carrega a chave da API e inicia o processo de análise.
-    Busca jogos da data de amanhã, para garantir que as odds ainda estão disponíveis.
+    Busca jogos 2 dias à frente, para aumentar a chance de encontrar agendamentos.
     """
     
     # 1. Tenta carregar a chave da API da variável de ambiente
@@ -30,9 +31,10 @@ def main():
         
     
     # 2. CALCULA A DATA DE BUSCA
-    # Opção 2 (Recomendada): Data de AMANHÃ, para ter tempo para analisar e apostar.
-    target_date = (datetime.date.today() + datetime.timedelta(days=1)).strftime("%Y-%m-%d")
-    logger.info(f"📅 A data de análise foi definida para: {target_date}")
+    # Definido para +2 dias para aumentar a probabilidade de encontrar jogos agendados.
+    days_to_add = 2 
+    target_date = (datetime.date.today() + datetime.timedelta(days=days_to_add)).strftime("%Y-%m-%d")
+    logger.info(f"📅 A data de análise foi definida para: {target_date} (+{days_to_add} dias)")
     
     
     # 3. Inicializa o cliente e a calculadora
@@ -47,7 +49,7 @@ def main():
     fixtures = client.get_fixtures_by_date(date=target_date, league_id=league_id)
     
     if not fixtures:
-        logger.warning(f"Nenhum jogo encontrado para {target_date} ou MOCK DATA indisponível. Finalizando.")
+        logger.warning(f"Nenhum jogo encontrado para {target_date} e o MOCK DATA falhou. Finalizando.")
         return
 
     opportunities = []
@@ -65,8 +67,14 @@ def main():
         logger.info(f"   📊 Coletando dados dos times...")
         
         # Coleta de dados (Real ou Mock, se a API falhar)
+        # Usamos uma 'season' válida (2024 é um bom chute para 2024/2025)
         home_stats = client.collect_team_data(home_id, league_id, season=2024)
         away_stats = client.collect_team_data(away_id, league_id, season=2024)
+        
+        if not all([home_stats, away_stats]):
+            logger.warning("    ⚠️ Dados insuficientes dos times. Pulando o jogo.")
+            continue
+            
         logger.info(f"   🤝 Coletando dados H2H...")
         h2h_stats = client.collect_h2h_data(home_id, away_id)
         logger.info(f"   💰 Buscando odds...")
@@ -75,7 +83,6 @@ def main():
         # CÁLCULOS (Manter MOCK por enquanto, até implementarmos Poisson)
         
         for goal_line in [0.5, 1.5]:
-            # Usa o calculate_over_probability da classe BettingCalculator
             prob, conf = calculator.calculate_over_probability(home_stats, away_stats, h2h_stats, goal_line)
             odds_key = f'over_{int(goal_line*10)}_odds'
             market_odds = odds.get(odds_key)
@@ -118,15 +125,18 @@ def main():
     logger.info("🎯 OPORTUNIDADES DETECTADAS (RANKED)")
     logger.info("============================================================")
     
-    for i, opp in enumerate(opportunities, 1):
-        logger.info(f"\n{i}. {opp['team1']} vs {opp['team2']} | Mercado: {opp['market']}")
-        logger.info(f"   Liga: {opp['league']}")
-        logger.info("   ---")
-        logger.info(f"   Probabilidade: {opp['prob']*100:.1f}%")
-        logger.info(f"   Odds Mercado: {opp['odds']:.2f}")
-        logger.info(f"   Expected Value: {opp['ev']*100:.2f}%")
-        logger.info(f"   Confiança: {opp['confidence']*100:.0f}%")
-        logger.info(f"   Kelly Pura (F): {opp['kelly']:.2f}%")
+    if not opportunities:
+        logger.info("Nenhuma oportunidade com valor detectada.")
+    else:
+        for i, opp in enumerate(opportunities, 1):
+            logger.info(f"\n{i}. {opp['team1']} vs {opp['team2']} | Mercado: {opp['market']}")
+            logger.info(f"   Liga: {opp['league']}")
+            logger.info("   ---")
+            logger.info(f"   Probabilidade: {opp['prob']*100:.1f}%")
+            logger.info(f"   Odds Mercado: {opp['odds']:.2f}")
+            logger.info(f"   Expected Value: {opp['ev']*100:.2f}%")
+            logger.info(f"   Confiança: {opp['confidence']*100:.0f}%")
+            logger.info(f"   Kelly Pura (F): {opp['kelly']:.2f}%")
 
     logger.info("\n============================================================")
     logger.info("✅ ANÁLISE CONCLUÍDA")
@@ -135,10 +145,14 @@ def main():
 
 
 if __name__ == '__main__':
-    # Adicionar o manipulador de log para garantir que as mensagens de data apareçam
+    # Adicionar o manipulador de log
     handler = logging.StreamHandler()
     formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
     handler.setFormatter(formatter)
-    logger.addHandler(handler)
-
+    
+    # Aplicar o handler nos loggers necessários
+    root_logger = logging.getLogger()
+    root_logger.setLevel(logging.INFO)
+    root_logger.addHandler(handler)
+    
     main()
