@@ -418,10 +418,10 @@ class Scheduler:
             logger.info(f"   Liga: {opp['league']}")
             logger.info(f"   ---")
             logger.info(f"   Probabilidade: {opp['our_probability']:.1%}")
-            logger.info(f"   Odds Mercado: {opp['market_odds']:.2f}")
+            logger.info(f"   Odds Mercado: {opp['over_1_5_odds']:.2f}")
             logger.info(f"   Expected Value: {opp['expected_value']:.2%}") # Alterado para %
             logger.info(f"   Confiança: {opp['confidence']:.0f}%")
-            logger.info(f"   Kelly Pura (F): {opp['pure_kelly_fraction']:.2f}%") 
+            logger.info(f"   Kelly Pura (F): {opp['kelly_stake']:.2f}%") 
 
     def update_results(self): pass
     def cleanup_old_data(self): pass
