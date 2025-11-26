@@ -367,15 +367,16 @@ class Scheduler:
                         'match_date': fixture['fixture']['date'],
                         'market': market_name, 
                         'our_probability': our_probability,
-                        'market_odds': market_odds,
-                        # NOVO CAMPO REQUERIDO PELO BANCO DE DADOS
+                        'over_1_5_odds': market_odds, # CORREÇÃO: Renomeado para over_1_5_odds
                         'implied_probability': implied_probability, 
+                        'confidence': confidence_score * 100, # CORREÇÃO: Movido para o lugar correto
+                        'edge': detection_result['expected_value'] / 100, # CORREÇÃO: Edge é EV/100
                         'expected_value': detection_result['expected_value'],
-                        'recommended_stake': detection_result['suggested_stake'] * 100, 
-                        'pure_kelly_fraction': detection_result['pure_kelly_fraction'] * 100, 
+                        'kelly_stake': detection_result['pure_kelly_fraction'], # CORREÇÃO: Kelly Stake é a fração
+                        'recommended_stake': detection_result['suggested_stake'], # CORREÇÃO: Recommended Stake é a fração
                         'bet_quality': 'High',
                         'risk_level': 'Medium',
-                        'confidence': confidence_score * 100 # Adicionamos o score de confiança aqui
+                        'analyzed_at': datetime.now().isoformat() # CORREÇÃO: Adicionado analyzed_at
                     }
                     opportunities_list.append(opportunity)
 
