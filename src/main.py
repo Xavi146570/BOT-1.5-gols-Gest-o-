@@ -42,7 +42,7 @@ def run_once():
             leagues = [int(x.strip()) for x in leagues_env.split(",") if x.strip().isdigit()]
         else:
             leagues = TOP_20_LEAGUES
-        ops = analyzer.run_daily_analysis(days_to_add=days_to_add, leagues=leagues)
+        ops = analyzer.run_daily_analysis(leagues=leagues)
         return JSONResponse({"status": "ok", "found": len(ops)})
     except Exception as e:
         logger.error(f"Erro ao forçar análise: {e}")
