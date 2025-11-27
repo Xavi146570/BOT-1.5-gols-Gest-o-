@@ -1,22 +1,16 @@
 services:
   - type: web
-    name: football-value-detector
+    name: futebol-value
     env: docker
-    repo: https://github.com/SEU_USUARIO/SEU_REPOSITORIO
-    branch: main
     plan: free
     autoDeploy: true
+
     dockerfilePath: ./Dockerfile
+
     envVars:
-      - key: PORT
-        value: "8000"
-      - key: API_FOOTBALL_KEY
+      - key: FOOTBALL_API_KEY
         sync: false
-      - key: ANALYSIS_INTERVAL_HOURS
-        value: "4"
-      - key: DAYS_TO_ADD
-        value: "5"
-      - key: LEAGUES
-        value: ""  # opcional: "39,140,78"
-      - key: SEASON
-        value: "2024"
+      - key: EXTERNAL_ODDS_KEY
+        sync: false
+      - key: ENVIRONMENT
+        value: "production"
