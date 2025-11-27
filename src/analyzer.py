@@ -41,7 +41,7 @@ class Analyzer:
             target_date = datetime.utcnow().date()  # sempre HOJE
             date_str = target_date.strftime("%Y-%m-%d")
 
-            logger.info(f"📅 Tentativa para data: {date_str} (+{days_to_add + offset} dias)")
+            logger.info(f"📅 Tentativa para data: {date_str}
 
             season = self.env_season if self.env_season else self.season_for_date(target_date)
             logger.info(f"   usando season: {season}")
