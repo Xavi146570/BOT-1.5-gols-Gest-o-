@@ -18,7 +18,9 @@ if not logger.handlers:
     logger.addHandler(h)
 
 API_KEY = os.getenv("API_FOOTBALL_KEY", "")
-SEASON = int(os.getenv("SEASON", "2024"))
+# SEASON optional; analyzer will infer from date if not provided
+SEASON_ENV = os.getenv("SEASON")
+SEASON = int(SEASON_ENV) if SEASON_ENV and SEASON_ENV.isdigit() else None
 
 api_client = APIClient(api_key=API_KEY)
 db = Database()
@@ -28,7 +30,7 @@ app = FastAPI(title="Football Value Detector")
 
 @app.get("/", tags=["status"])
 def index():
-    ops = db.list_opportunities(limit=50)
+    ops = db.list_opportunities(limit=50) if hasattr(db, "list_opportunities") else []
     return JSONResponse({"status": "ok", "opportunities": ops})
 
 @app.get("/run", tags=["admin"])
@@ -48,12 +50,10 @@ def run_once():
 
 
 # -------------------------------------------------------------------
-# ✔️ CORRIGIDO — SCHEDULER 100% COMPATÍVEL COM RENDER
+# Background scheduler (compatível com Render)
 # -------------------------------------------------------------------
-
 async def background_scheduler():
-    """Loop assíncrono que roda continuamente em background."""
-    await asyncio.sleep(5)  # espera 5s para garantir inicialização completa
+    await asyncio.sleep(5)  # pequena espera pós-startup
     logger.info("🔄 Background scheduler iniciado.")
 
     while True:
@@ -68,11 +68,9 @@ async def background_scheduler():
             logger.info("🚀 Executando análise automática...")
             analyzer.run_daily_analysis(days_to_add=days_to_add, leagues=leagues)
             logger.info("✅ Análise automática concluída.")
-
         except Exception as e:
             logger.error(f"Erro no scheduler: {e}")
 
-        # intervalo de repetição
         interval_hours = float(os.getenv("ANALYSIS_INTERVAL_HOURS", "4"))
         await asyncio.sleep(interval_hours * 3600)
 
@@ -83,9 +81,8 @@ async def on_startup():
 
 
 # -------------------------------------------------------------------
-# ✔️ EXECUÇÃO LOCAL (Render ignora esta parte)
+# Execução direta (local)
 # -------------------------------------------------------------------
-
 if __name__ == "__main__":
     port = int(os.getenv("PORT", "8000"))
     uvicorn.run("src.main:app", host="0.0.0.0", port=port, log_level="info")
