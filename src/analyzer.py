@@ -38,7 +38,7 @@ class Analyzer:
 
         # Tenta offsets 0..max_ahead (inclusive)
         for offset in range(0, max_ahead + 1):
-            target_date = (datetime.utcnow() + timedelta(days=days_to_add + offset)).date()
+            target_date = datetime.utcnow().date()  # sempre HOJE
             date_str = target_date.strftime("%Y-%m-%d")
 
             logger.info(f"📅 Tentativa para data: {date_str} (+{days_to_add + offset} dias)")
