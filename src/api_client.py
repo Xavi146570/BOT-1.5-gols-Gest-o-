@@ -64,40 +64,28 @@ class APIClient:
     # -------------------------
     # Fixtures: permite lista de ligas
     # -------------------------
-    def get_fixtures_by_date(self, date: str, leagues: Optional[List[int]] = None) -> List[Dict[str, Any]]:
-        results: List[Dict[str, Any]] = []
-        if leagues:
-            if len(leagues) > 20:
-                logger.warning("Recebida lista de ligas > 20, truncando para os primeiros 20.")
-                leagues = leagues[:20]
-            for lid in leagues:
-                logger.info(f"Buscando fixtures para {date} | league={lid}")
-                resp = self._make_request("fixtures", params={'date': date, 'league': lid})
-                if resp is None:
-                    logger.warning(f"Falha ao buscar fixtures para liga {lid} (retornou None).")
-                    continue
-                if isinstance(resp, list):
-                    results.extend(resp)
-        else:
-            logger.info(f"Buscando fixtures para {date} em todas as ligas.")
-            resp = self._make_request("fixtures", params={'date': date})
-            if resp is None:
-                logger.warning("Falha ao buscar fixtures (todas as ligas).")
-                return []
-            if isinstance(resp, list):
-                results = resp
+        def get_fixtures(self, date: str, league_id: int, season: int):
+        url = f"{self.BASE_URL}/fixtures"
+        params = {
+            "date": date,
+            "league": league_id,
+            "season": season
+        }
 
-        # remover duplicados por fixture id
-        unique = {}
-        for f in results:
-            try:
-                fid = int(f['fixture']['id'])
-            except Exception:
-                fid = id(f)
-            unique[fid] = f
-        fixtures_unique = list(unique.values())
-        logger.info(f"Fixtures coletadas: {len(fixtures_unique)}")
-        return fixtures_unique
+        try:
+            response = self.session.get(url, params=params, timeout=20)
+            data = response.json()
+
+            if "errors" in data and data["errors"]:
+                logger.error(f"❌ Erros na resposta da API: {data['errors']}")
+                return None
+
+            return data.get("response", [])
+
+        except Exception as e:
+            logger.error(f"Erro ao buscar fixtures: {e}")
+            return None
+
 
     # -------------------------
     # Team statistics (teams/statistics)
