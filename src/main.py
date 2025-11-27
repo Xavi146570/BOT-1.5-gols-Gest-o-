@@ -50,29 +50,62 @@ def run_once():
 
 
 # -------------------------------------------------------------------
-# Background scheduler (compatível com Render)
+# Background scheduler SEGURO (1 execução por dia)
 # -------------------------------------------------------------------
+import asyncio
+from datetime import datetime, time, timedelta
+
+scheduler_lock = False  # evita múltiplas execuções no Render
+
+
+async def run_daily_task():
+    """Executa a análise 1x por dia."""
+    global scheduler_lock
+    if scheduler_lock:
+        return  # evita chamadas duplicadas (típico do Render)
+    scheduler_lock = True
+
+    try:
+        days_to_add = int(os.getenv("DAYS_TO_ADD", "5"))
+
+        leagues_env = os.getenv("LEAGUES")
+        if leagues_env:
+            leagues = [int(x.strip()) for x in leagues_env.split(",") if x.strip().isdigit()]
+        else:
+            leagues = TOP_20_LEAGUES
+
+        logger.info("🚀 Execução diária iniciada...")
+        analyzer.run_daily_analysis(days_to_add=days_to_add, leagues=leagues)
+        logger.info("✅ Execução diária finalizada.")
+    except Exception as e:
+        logger.error(f"Erro na execução diária: {e}")
+
+    scheduler_lock = False
+
+
 async def background_scheduler():
-    await asyncio.sleep(5)  # pequena espera pós-startup
-    logger.info("🔄 Background scheduler iniciado.")
+    """Agenda a execução para ocorrer 1x por dia às 06:00 UTC."""
+    await asyncio.sleep(5)  # garante startup completa
+
+    logger.info("⏳ Scheduler diário iniciado (1x por dia).")
 
     while True:
-        try:
-            days_to_add = int(os.getenv("DAYS_TO_ADD", "5"))
-            leagues_env = os.getenv("LEAGUES")
-            if leagues_env:
-                leagues = [int(x.strip()) for x in leagues_env.split(",") if x.strip().isdigit()]
-            else:
-                leagues = TOP_20_LEAGUES
+        now = datetime.utcnow()
+        run_time = time(6, 0)  # 06:00 UTC — horário leve
 
-            logger.info("🚀 Executando análise automática...")
-            analyzer.run_daily_analysis(days_to_add=days_to_add, leagues=leagues)
-            logger.info("✅ Análise automática concluída.")
-        except Exception as e:
-            logger.error(f"Erro no scheduler: {e}")
+        today_run = datetime.combine(now.date(), run_time)
 
-        interval_hours = float(os.getenv("ANALYSIS_INTERVAL_HOURS", "4"))
-        await asyncio.sleep(interval_hours * 3600)
+        # se já passou hoje → agenda para amanhã
+        if now > today_run:
+            today_run += timedelta(days=1)
+
+        wait_seconds = (today_run - now).total_seconds()
+
+        logger.info(f"⏳ Próxima execução diária daqui a {wait_seconds/3600:.2f} horas.")
+
+        await asyncio.sleep(wait_seconds)
+
+        await run_daily_task()
 
 
 @app.on_event("startup")
@@ -81,8 +114,9 @@ async def on_startup():
 
 
 # -------------------------------------------------------------------
-# Execução direta (local)
+# Execução local
 # -------------------------------------------------------------------
 if __name__ == "__main__":
     port = int(os.getenv("PORT", "8000"))
     uvicorn.run("src.main:app", host="0.0.0.0", port=port, log_level="info")
+
