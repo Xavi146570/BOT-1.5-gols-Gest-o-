@@ -8,11 +8,11 @@ logger.setLevel(logging.INFO)
 
 class Analyzer:
     def __init__(self):
-        self.api_url = "https://api-football-v1.p.rapidapi.com/v3/fixtures"
+        self.api_url = "https://v3.football.api-sports.io/fixtures"
         self.api_key = os.getenv("RAPIDAPI_KEY")
         self.headers = {
             "X-RapidAPI-Key": self.api_key,
-            "X-RapidAPI-Host": "api-football-v1.p.rapidapi.com"
+            "X-RapidAPI-Host": "v3.football.api-sports.io"
         }
 
     def run_daily_analysis(self, leagues=None):
