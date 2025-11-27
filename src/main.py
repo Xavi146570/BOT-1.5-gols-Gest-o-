@@ -8,7 +8,7 @@ from src.analyzer import Analyzer
 # Configuração de logs
 
 logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+logger = logging.getLogger(**name**)
 
 app = FastAPI()
 analyzer = Analyzer()
