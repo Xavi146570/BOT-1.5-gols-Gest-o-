@@ -3,7 +3,7 @@ import logging
 from datetime import datetime
 import requests
 
-logger = logging.getLogger(**name**)
+logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
 class Analyzer:
