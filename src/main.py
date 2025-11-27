@@ -38,10 +38,15 @@ while True:
     except Exception as e:
         logger.error(f"Erro no scheduler diário: {e}")
 
-    # Dorme ~24 horas (1x por dia)
     logger.info("⏳ Próxima execução daqui a 24 horas.")
-    await asyncio.sleep(24 * 3600)
+    await asyncio.sleep(24 * 3600)  # dorme ~24 horas
 ```
+
+# -------------------------------------------------------------------
+
+# Startup da aplicação
+
+# -------------------------------------------------------------------
 
 @app.on_event("startup")
 async def on_startup():
