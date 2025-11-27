@@ -33,7 +33,7 @@ class Analyzer:
         logger.info(f"📅 A data de análise ATUAL é: {date_str} (+{days_to_add} dias)")
         leagues_to_use = leagues if leagues else TOP_20_LEAGUES
 
-        fixtures = self.api.get_fixtures_by_date(date_str, leagues=leagues_to_use)
+        fixtures = self.api.get_fixtures(date_str, league_id, self.season)
         if not fixtures:
             logger.warning(f"Nenhum jogo encontrado para {date_str}. Finalizando.")
             return []
