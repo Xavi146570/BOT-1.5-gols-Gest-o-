@@ -1,16 +1,12 @@
 services:
   - type: web
-    name: futebol-value
-    env: docker
-    plan: free
-    autoDeploy: true
-
-    dockerfilePath: ./Dockerfile
-
+    name: football-value-detector
+    env: python
+    plan: starter
+    buildCommand: "pip install -r requirements.txt"
+    startCommand: "uvicorn src.main:app --host 0.0.0.0 --port $PORT"
     envVars:
-      - key: FOOTBALL_API_KEY
+      - key: API_KEY
         sync: false
-      - key: EXTERNAL_ODDS_KEY
-        sync: false
-      - key: ENVIRONMENT
-        value: "production"
+      - key: TZ
+        value: Europe/Lisbon
