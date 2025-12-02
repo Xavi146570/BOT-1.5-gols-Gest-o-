@@ -1,4 +1,5 @@
 # src/analyzer.py
+import os
 import logging
 from datetime import datetime
 from src.api_client import APIClient
