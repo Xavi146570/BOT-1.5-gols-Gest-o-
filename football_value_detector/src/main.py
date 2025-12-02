@@ -46,7 +46,12 @@ def run_analysis_cycle():
         else:
             leagues = TOP_20_LEAGUES
 
+        # DIAGNÓSTICO CRUCIAL: Verifique qual lista está a ser usada
+        # Isto vai revelar se a lista está invertida ou truncada (e.g., [795])
+        logger.info(f"Ligas selecionadas para análise (Total: {len(leagues)}): {leagues}") 
+        
         analyzer.run_daily_analysis(days_to_add=days_to_add, leagues=leagues)
+        
     except Exception as e:
         logger.error(f"Erro no ciclo de análise: {e}")
     finally:
