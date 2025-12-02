@@ -1,7 +1,7 @@
-# src/analyzer.py
 from typing import List, Dict, Any, Optional
 import logging
-from .api_client import APIClient, TOP_20_LEAGUES
+# Note: Assumindo que TOP_20_LEAGUES está corretamente definida em .api_client
+from .api_client import APIClient, TOP_20_LEAGUES 
 from .probability_calculator import (
     calculate_over_probability,
     calculate_expected_value,
@@ -35,16 +35,35 @@ class Analyzer:
         logger.info("🚀 INICIANDO ANÁLISE DIÁRIA")
         logger.info("============================================================")
         logger.info(f"📅 A data de análise ATUAL é: {date_str} (+{days_to_add} dias)")
+        
         leagues_to_use = leagues if leagues else TOP_20_LEAGUES
+        
+        # Corrigido: Inicializa a lista de todos os jogos
+        all_fixtures = []
 
-        fixtures = self.api.get_fixtures_by_date(date_str, leagues=leagues_to_use)
-        if not fixtures:
-            logger.warning(f"Nenhum jogo encontrado para {date_str}. Finalizando.")
+        # NOVA ESTRUTURA: Itera sobre cada liga individualmente
+        for league_id in leagues_to_use:
+            logger.info(f"🔎 Buscando jogos da liga {league_id} | season {self.season}...")
+            
+            # Chama a API para buscar fixtures para UMA liga
+            # Assumimos que get_fixtures_by_date aceita agora [league_id] ou league_id
+            # Se for uma lista de ligas, use [league_id]
+            fixtures_for_league = self.api.get_fixtures_by_date(date_str, leagues=[league_id]) 
+            
+            if fixtures_for_league:
+                all_fixtures.extend(fixtures_for_league)
+            else:
+                logger.info(f"⚠️ Nenhum jogo encontrado para a liga {league_id}.")
+
+        # Verifica se algum jogo foi encontrado em todas as ligas
+        if not all_fixtures:
+            logger.warning(f"Nenhum jogo encontrado em todas as ligas para {date_str}. Finalizando.")
             return []
-
+        
+        # O processamento agora usa a lista agregada: all_fixtures
         opportunities = []
 
-        for i, fixture in enumerate(fixtures, 1):
+        for i, fixture in enumerate(all_fixtures, 1):
             try:
                 fixture_id = int(fixture['fixture']['id'])
                 home = fixture['teams']['home']['name']
@@ -55,10 +74,10 @@ class Analyzer:
                 logger.error(f"Erro extrair dados da fixture: {e}")
                 continue
 
-            logger.info(f"\n--- Analisando jogo {i}/{len(fixtures)} ---")
+            logger.info(f"\n--- Analisando jogo {i}/{len(all_fixtures)} ---")
             logger.info(f"⚽ {home} vs {away}")
-            logger.info(f"   Liga: {league_name} | ID: {fixture_id}")
-            logger.info("   📊 Coletando dados dos times...")
+            logger.info(f"    Liga: {league_name} | ID: {fixture_id}")
+            logger.info("    📊 Coletando dados dos times...")
 
             home_stats = self.api.collect_team_data(fixture['teams']['home']['id'], league_id, season=self.season)
             away_stats = self.api.collect_team_data(fixture['teams']['away']['id'], league_id, season=self.season)
@@ -66,7 +85,7 @@ class Analyzer:
             odds = self.api.get_odds(fixture_id)
 
             if home_stats is None or away_stats is None:
-                logger.warning("   ⚠️ Dados insuficientes dos times. Pulando o jogo.")
+                logger.warning("    ⚠️ Dados insuficientes dos times. Pulando o jogo.")
                 continue
 
             for goal_line in [0.5, 1.5]:
@@ -77,15 +96,15 @@ class Analyzer:
                 if market_odds and market_odds > 1.0:
                     ev = calculate_expected_value(prob, market_odds)
                     kelly = calculate_kelly_criterion(prob, market_odds)
-                    logger.info("   🧮 Calculando probabilidades...")
-                    logger.info(f"   📈 Probabilidade Over {goal_line}: {prob*100:.1f}%")
-                    logger.info(f"   🎯 Confiança: {conf*100:.0f}%")
-                    logger.info(f"   💵 Odds Over {goal_line}: {market_odds:.2f}")
+                    logger.info("    🧮 Calculando probabilidades...")
+                    logger.info(f"    📈 Probabilidade Over {goal_line}: {prob*100:.1f}%")
+                    logger.info(f"    🎯 Confiança: {conf*100:.0f}%")
+                    logger.info(f"    💵 Odds Over {goal_line}: {market_odds:.2f}")
 
                     if ev > 0.05:
-                        logger.info(f"   ✅ VALOR DETECTADO em Over {goal_line}!")
-                        logger.info(f"   💵 EV: {ev*100:.2f}%")
-                        logger.info(f"   📊 Kelly Pura (F): {kelly*100:.2f}%")
+                        logger.info(f"    ✅ VALOR DETECTADO em Over {goal_line}!")
+                        logger.info(f"    💵 EV: {ev*100:.2f}%")
+                        logger.info(f"    📊 Kelly Pura (F): {kelly*100:.2f}%")
 
                         opportunities.append({
                             'fixture_id': fixture_id,
@@ -103,9 +122,9 @@ class Analyzer:
                         self.db.save_opportunity(fixture_id, home, away, league_name, f'Over {goal_line}',
                                                  prob, market_odds, ev, conf, kelly)
                     else:
-                        logger.info(f"   ⚠️ Sem valor detectado em Over {goal_line} (EV: {ev*100:.2f}%).")
+                        logger.info(f"    ⚠️ Sem valor detectado em Over {goal_line} (EV: {ev*100:.2f}%).")
                 else:
-                    logger.info(f"   ℹ️ Odds Over {goal_line} indisponíveis ou inválidas para este fixture.")
+                    logger.info(f"    ℹ️ Odds Over {goal_line} indisponíveis ou inválidas para este fixture.")
 
         # ordenar por EV descendente
         opportunities.sort(key=lambda x: x['ev'], reverse=True)
@@ -116,12 +135,12 @@ class Analyzer:
         logger.info("============================================================")
         for idx, opp in enumerate(opportunities, 1):
             logger.info(f"\n{idx}. {opp['team1']} vs {opp['team2']} | Mercado: {opp['market']}")
-            logger.info(f"   Liga: {opp['league']}")
-            logger.info(f"   Probabilidade: {opp['prob']*100:.1f}%")
-            logger.info(f"   Odds Mercado: {opp['odds']:.2f}")
-            logger.info(f"   Expected Value: {opp['ev']*100:.2f}%")
-            logger.info(f"   Confiança: {opp['confidence']*100:.0f}%")
-            logger.info(f"   Kelly Pura (F): {opp['kelly']*100:.2f}%")
+            logger.info(f"    Liga: {opp['league']}")
+            logger.info(f"    Probabilidade: {opp['prob']*100:.1f}%")
+            logger.info(f"    Odds Mercado: {opp['odds']:.2f}")
+            logger.info(f"    Expected Value: {opp['ev']*100:.2f}%")
+            logger.info(f"    Confiança: {opp['confidence']*100:.0f}%")
+            logger.info(f"    Kelly Pura (F): {opp['kelly']*100:.2f}%")
 
         logger.info("\n============================================================")
         logger.info(f"✅ ANÁLISE CONCLUÍDA — Oportunidades encontradas: {len(opportunities)}")
