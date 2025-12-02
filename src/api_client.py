@@ -12,16 +12,16 @@ TOP_20_LEAGUES = [
 ]
 
 class APIClient:
-    BASE_URL = "https://api-football-v1.p.rapidapi.com/v3"
+    BASE_URL = "https://v3.football.api-sports.io"
 
     def __init__(self, api_key: str):
         self.api_key = api_key or ""
         self.session = requests.Session()
         if self.api_key:
             self.session.headers.update({
-                "X-RapidAPI-Key": self.api_key,
-                "X-RapidAPI-Host": "api-football-v1.p.rapidapi.com"
+                "x-apisports-key": self.api_key
             })
+
             logger.info("Conectado ao cliente da API de Futebol e cabeçalho de autenticação configurado.")
         else:
             logger.warning("API key não fornecida. Chamadas à API irão falhar sem chave.")
