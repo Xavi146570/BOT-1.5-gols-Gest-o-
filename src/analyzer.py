@@ -1,64 +1,54 @@
-import os
+# src/analyzer.py
 import logging
 from datetime import datetime
-import requests
+from src.api_client import APIClient
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("src.analyzer")
 logger.setLevel(logging.INFO)
 
 class Analyzer:
     def __init__(self):
-        self.api_url = "https://v3.football.api-sports.io/fixtures"
-        self.api_key = os.getenv("RAPIDAPI_KEY")
-        self.headers = {
-            "X-RapidAPI-Key": self.api_key,
-            "X-RapidAPI-Host": "v3.football.api-sports.io"
-        }
+        # Usa a API key correta do ambiente
+        api_key = os.getenv("API_SPORTS_KEY")
+        self.client = APIClient(api_key)
+
+    def get_valid_season(self, league_id: int) -> int:
+        """
+        A API-Sports geralmente tem season última = ano-1.
+        Ex: em 2025, season válida = 2024.
+        """
+        this_year = datetime.now().year
+        return this_year - 1  # mais seguro para todas as ligas
 
     def run_daily_analysis(self, leagues=None):
-        """Busca os jogos da data atual para as ligas especificadas e processa os dados."""
         if leagues is None:
-            leagues = [795]  # padrão, exemplo de liga
+            leagues = [795]  # default
 
-        today_str = datetime.now().strftime("%Y-%m-%d")
-        logger.info(f"📅 Executando análise para a data atual: {today_str}")
+        today = datetime.now().strftime("%Y-%m-%d")
+        logger.info(f"📅 Executando análise para a data: {today}")
 
-        any_fixtures = False
+        found_any = False
 
         for league_id in leagues:
-            try:
-                logger.info(f"🔎 Buscando jogos da liga {league_id}...")
-                params = {
-                    "date": today_str,
-                    "league": league_id,
-                    "season": datetime.now().year
-                }
-                response = requests.get(self.api_url, headers=self.headers, params=params, timeout=10)
-                response.raise_for_status()
-                data = response.json()
+            season = self.get_valid_season(league_id)
 
-                fixtures = data.get("response", [])
-                if not fixtures:
-                    logger.info(f"⚠️ Nenhum jogo encontrado para a liga {league_id} hoje.")
-                    continue
+            logger.info(f"🔎 Buscando jogos da liga {league_id} | season {season}...")
 
-                any_fixtures = True
-                logger.info(f"✅ {len(fixtures)} jogos encontrados para a liga {league_id}.")
-                # Aqui você processaria os dados dos jogos (ex: salvar no DB, análises, etc.)
+            fixtures = self.client.get_fixtures(
+                date=today,
+                league_id=league_id,
+                season=season
+            )
 
-            except requests.exceptions.HTTPError as e:
-                if response.status_code == 429:
-                    logger.warning(f"⚠️ Limite de requests atingido para league={league_id}: {e}")
-                else:
-                    logger.error(f"HTTPError ao buscar fixtures (league={league_id}): {e}")
-            except Exception as e:
-                logger.error(f"Erro inesperado ao buscar fixtures da liga {league_id}: {e}")
+            if not fixtures:
+                logger.info(f"⚠️ Nenhum jogo encontrado para liga {league_id}.")
+                continue
 
-        if not any_fixtures:
-            logger.info("⚠️ Nenhum jogo encontrado em todo o dia de hoje.")
+            found_any = True
+            logger.info(f"✅ {len(fixtures)} jogos encontrados para liga {league_id}.")
 
-# Exemplo de uso direto
+            # Aqui adicionas o processamento real
+            # ...
 
-if __name__ == "__main__":
-    analyzer = Analyzer()
-    analyzer.run_daily_analysis()
+        if not found_any:
+            logger.info("⚠️ Nenhum jogo encontrado para nenhuma liga hoje.")
