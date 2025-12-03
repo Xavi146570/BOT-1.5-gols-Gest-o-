@@ -1,148 +1,77 @@
-from typing import List, Dict, Any, Optional
+import os
 import logging
-# Note: Assumindo que TOP_20_LEAGUES está corretamente definida em .api_client
-from .api_client import APIClient, TOP_20_LEAGUES 
-from .probability_calculator import (
-    calculate_over_probability,
-    calculate_expected_value,
-    calculate_kelly_criterion
-)
-from .database import Database
-from .utils import get_utc_today_plus_days
+from datetime import datetime
+import requests
 
-logger = logging.getLogger("src.analyzer")
+logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
-if not logger.handlers:
-    import sys
-    h = logging.StreamHandler(sys.stdout)
-    h.setFormatter(logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s'))
-    logger.addHandler(h)
 
 class Analyzer:
-    def __init__(self, api_client: APIClient, db: Database, season: int = None):
-        self.api = api_client
-        self.db = db
-        self.season = season or 2024
+    def __init__(self):
+        self.api_url = "https://v3.football.api-sports.io/fixtures"
+        self.api_key = os.getenv("API_FOOTBALL_KEY")  # variável correta
+        self.headers = {
+            "X-RapidAPI-Key": self.api_key,
+            "X-RapidAPI-Host": "v3.football.api-sports.io"
+        }
 
-    def run_daily_analysis(self, days_to_add: int = 0, leagues: Optional[List[int]] = None) -> List[Dict[str, Any]]:
-        """
-        Executa a análise para a data hoje+days_to_add.
-        Retorna lista de oportunidades encontradas.
-        """
-        target_date = get_utc_today_plus_days(days_to_add)
-        date_str = target_date.strftime("%Y-%m-%d")
-        logger.info("============================================================")
-        logger.info("🚀 INICIANDO ANÁLISE DIÁRIA")
-        logger.info("============================================================")
-        logger.info(f"📅 A data de análise ATUAL é: {date_str} (+{days_to_add} dias)")
-        
-        leagues_to_use = leagues if leagues else TOP_20_LEAGUES
-        
-        # Corrigido: Inicializa a lista de todos os jogos
-        all_fixtures = []
+        # Lista padrão de ligas
+        self.default_leagues = [
+            39, 140, 61, 78, 135, 94, 88, 203, 179, 144,
+            141, 40, 262, 301, 235, 253, 556, 566, 569, 795
+        ]
 
-        # NOVA ESTRUTURA: Itera sobre cada liga individualmente
-        for league_id in leagues_to_use:
-            logger.info(f"🔎 Buscando jogos da liga {league_id} | season {self.season}...")
-            
-            # Chama a API para buscar fixtures para UMA liga
-            # Assumimos que get_fixtures_by_date aceita agora [league_id] ou league_id
-            # Se for uma lista de ligas, use [league_id]
-            fixtures_for_league = self.api.get_fixtures_by_date(date_str, leagues=[league_id]) 
-            
-            if fixtures_for_league:
-                all_fixtures.extend(fixtures_for_league)
-            else:
-                logger.info(f"⚠️ Nenhum jogo encontrado para a liga {league_id}.")
+    def run_daily_analysis(self, leagues=None):
+        """Busca os jogos da data atual para as ligas especificadas e processa os dados."""
 
-        # Verifica se algum jogo foi encontrado em todas as ligas
-        if not all_fixtures:
-            logger.warning(f"Nenhum jogo encontrado em todas as ligas para {date_str}. Finalizando.")
-            return []
-        
-        # O processamento agora usa a lista agregada: all_fixtures
-        opportunities = []
+        # Se nenhuma liga for passada, usa todas as suas ligas
+        if leagues is None:
+            leagues = self.default_leagues
 
-        for i, fixture in enumerate(all_fixtures, 1):
+        today_str = datetime.now().strftime("%Y-%m-%d")
+        season = datetime.now().year - 1  # API usa temporada iniciada no ano anterior
+
+        logger.info(f"📅 Executando análise para a data: {today_str}")
+
+        any_fixtures = False
+
+        for league_id in leagues:
             try:
-                fixture_id = int(fixture['fixture']['id'])
-                home = fixture['teams']['home']['name']
-                away = fixture['teams']['away']['name']
-                league_name = fixture.get('league', {}).get('name', 'Unknown')
-                league_id = fixture.get('league', {}).get('id')
+                logger.info(f"🔎 Buscando jogos da liga {league_id} | season {season}...")
+
+                params = {
+                    "date": today_str,
+                    "league": league_id,
+                    "season": season
+                }
+
+                # Chamada à API
+                response = requests.get(self.api_url, headers=self.headers, params=params, timeout=10)
+                response.raise_for_status()
+                data = response.json()
+
+                fixtures = data.get("response", [])
+
+                if not fixtures:
+                    logger.info(f"⚠️ Nenhum jogo encontrado para liga {league_id}.")
+                    continue
+
+                any_fixtures = True
+                logger.info(f"✅ {len(fixtures)} jogos encontrados para a liga {league_id}.")
+
+                # Aqui você pode processar/salvar os dados
+                # Exemplo: salvar no DB, gerar análises, etc.
+
+            except requests.exceptions.HTTPError as e:
+                logger.error(f"HTTPError ao buscar fixtures (league={league_id}): {e}")
+
             except Exception as e:
-                logger.error(f"Erro extrair dados da fixture: {e}")
-                continue
+                logger.error(f"Erro inesperado ao buscar fixtures da liga {league_id}: {e}")
 
-            logger.info(f"\n--- Analisando jogo {i}/{len(all_fixtures)} ---")
-            logger.info(f"⚽ {home} vs {away}")
-            logger.info(f"    Liga: {league_name} | ID: {fixture_id}")
-            logger.info("    📊 Coletando dados dos times...")
+        if not any_fixtures:
+            logger.info("⚠️ Nenhum jogo encontrado para nenhuma liga hoje.")
 
-            home_stats = self.api.collect_team_data(fixture['teams']['home']['id'], league_id, season=self.season)
-            away_stats = self.api.collect_team_data(fixture['teams']['away']['id'], league_id, season=self.season)
-            h2h_stats = self.api.collect_h2h_data(fixture['teams']['home']['id'], fixture['teams']['away']['id'])
-            odds = self.api.get_odds(fixture_id)
-
-            if home_stats is None or away_stats is None:
-                logger.warning("    ⚠️ Dados insuficientes dos times. Pulando o jogo.")
-                continue
-
-            for goal_line in [0.5, 1.5]:
-                prob, conf = calculate_over_probability(home_stats, away_stats, h2h_stats, goal_line)
-                odds_key = f'over_{int(goal_line*10)}_odds'
-                market_odds = odds.get(odds_key) if isinstance(odds, dict) else None
-
-                if market_odds and market_odds > 1.0:
-                    ev = calculate_expected_value(prob, market_odds)
-                    kelly = calculate_kelly_criterion(prob, market_odds)
-                    logger.info("    🧮 Calculando probabilidades...")
-                    logger.info(f"    📈 Probabilidade Over {goal_line}: {prob*100:.1f}%")
-                    logger.info(f"    🎯 Confiança: {conf*100:.0f}%")
-                    logger.info(f"    💵 Odds Over {goal_line}: {market_odds:.2f}")
-
-                    if ev > 0.05:
-                        logger.info(f"    ✅ VALOR DETECTADO em Over {goal_line}!")
-                        logger.info(f"    💵 EV: {ev*100:.2f}%")
-                        logger.info(f"    📊 Kelly Pura (F): {kelly*100:.2f}%")
-
-                        opportunities.append({
-                            'fixture_id': fixture_id,
-                            'team1': home,
-                            'team2': away,
-                            'league': league_name,
-                            'market': f'Over {goal_line}',
-                            'prob': prob,
-                            'odds': market_odds,
-                            'ev': ev,
-                            'confidence': conf,
-                            'kelly': kelly
-                        })
-                        # salvar no DB
-                        self.db.save_opportunity(fixture_id, home, away, league_name, f'Over {goal_line}',
-                                                 prob, market_odds, ev, conf, kelly)
-                    else:
-                        logger.info(f"    ⚠️ Sem valor detectado em Over {goal_line} (EV: {ev*100:.2f}%).")
-                else:
-                    logger.info(f"    ℹ️ Odds Over {goal_line} indisponíveis ou inválidas para este fixture.")
-
-        # ordenar por EV descendente
-        opportunities.sort(key=lambda x: x['ev'], reverse=True)
-
-        # log final
-        logger.info("\n============================================================")
-        logger.info("🎯 OPORTUNIDADES DETECTADAS (RANKED)")
-        logger.info("============================================================")
-        for idx, opp in enumerate(opportunities, 1):
-            logger.info(f"\n{idx}. {opp['team1']} vs {opp['team2']} | Mercado: {opp['market']}")
-            logger.info(f"    Liga: {opp['league']}")
-            logger.info(f"    Probabilidade: {opp['prob']*100:.1f}%")
-            logger.info(f"    Odds Mercado: {opp['odds']:.2f}")
-            logger.info(f"    Expected Value: {opp['ev']*100:.2f}%")
-            logger.info(f"    Confiança: {opp['confidence']*100:.0f}%")
-            logger.info(f"    Kelly Pura (F): {opp['kelly']*100:.2f}%")
-
-        logger.info("\n============================================================")
-        logger.info(f"✅ ANÁLISE CONCLUÍDA — Oportunidades encontradas: {len(opportunities)}")
-        logger.info("============================================================")
-        return opportunities
+# Execução manual
+if __name__ == "__main__":
+    analyzer = Analyzer()
+    analyzer.run_daily_analysis()
