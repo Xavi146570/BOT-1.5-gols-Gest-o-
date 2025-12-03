@@ -7,31 +7,16 @@ from src.api_client import APIClient
 logger = logging.getLogger("src.analyzer")
 logger.setLevel(logging.INFO)
 
-
 class Analyzer:
-
-    # LISTA DEFINITIVA DAS 20 LIGAS
-    LEAGUES = [
-        39, 140, 61, 78, 135,
-        94, 88, 203, 179, 144,
-        141, 40, 262, 301, 235,
-        253, 556, 566, 569, 795
-    ]
-
     def __init__(self):
-        api_key = os.getenv("API_SPORTS_KEY")  # pega chave certa
+        api_key = os.getenv("API_SPORTS_KEY")
         self.client = APIClient(api_key)
 
     def get_valid_season(self, league_id: int) -> int:
         this_year = datetime.now().year
         return this_year - 1
 
-    # >>>>> AQUI GARANTO QUE SEMPRE USA AS 20 LIGAS, SEM EXCEÇÃO <<<<<
-    def run_daily_analysis(self, leagues=None):
-
-        # ignorar parâmetro, sempre usar a lista completa
-        leagues = self.LEAGUES
-
+    def run_daily_analysis(self, leagues):
         today = datetime.now().strftime("%Y-%m-%d")
         logger.info(f"📅 Executando análise para a data: {today}")
         logger.info(f"🔢 Total de ligas para consultar: {len(leagues)}")
@@ -40,6 +25,7 @@ class Analyzer:
 
         for league_id in leagues:
             season = self.get_valid_season(league_id)
+
             logger.info(f"🔎 Buscando jogos da liga {league_id} | season {season}...")
 
             fixtures = self.client.get_fixtures(
