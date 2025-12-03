@@ -1,73 +1,34 @@
-import os
-import asyncio
+# src/main.py
 import logging
+from apscheduler.schedulers.background import BackgroundScheduler
 from fastapi import FastAPI
-import uvicorn
 from src.analyzer import Analyzer
 
-# Configuração de logs
-
 logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("src.main")
 
 app = FastAPI()
+scheduler = BackgroundScheduler()
 analyzer = Analyzer()
 
-# -------------------------------------------------------------------
+LEAGUES = [
+    39, 140, 61, 78, 135, 94, 88, 203, 179, 144,
+    141, 40, 262, 301, 235, 253, 556, 566, 569, 795
+]
 
-# Scheduler diário (1x por dia)
-
-# -------------------------------------------------------------------
-
-async def daily_scheduler():
-    # pequena espera após startup
-    await asyncio.sleep(5)
-    logger.info("⏳ Scheduler diário iniciado (1x por dia).")
-
-    while True:
-        try:
-            leagues_env = os.getenv("LEAGUES")
-            if leagues_env:
-                leagues = [int(x.strip()) for x in leagues_env.split(",") if x.strip().isdigit()]
-            else:
-                leagues = None  # Analyzer usará padrão
-
-            logger.info("🚀 Executando análise diária...")
-            analyzer.run_daily_analysis(leagues=leagues)
-            logger.info("✅ Análise diária concluída.")
-        except Exception as e:
-            logger.error(f"Erro no scheduler diário: {e}")
-
+def run_daily():
+    try:
+        logger.info("🚀 Executando análise diária...")
+        analyzer.run_daily_analysis(leagues=LEAGUES)
+    except Exception as e:
+        logger.error(f"Erro no scheduler diário: {e}")
+    finally:
         logger.info("⏳ Próxima execução daqui a 24 horas.")
-        await asyncio.sleep(24 * 3600)
 
-# -------------------------------------------------------------------
+scheduler.add_job(run_daily, "interval", hours=24)
+scheduler.start()
+logger.info("⏳ Scheduler diário iniciado (1x por dia).")
 
-# Startup da aplicação
-
-# -------------------------------------------------------------------
-
-@app.on_event("startup")
-async def on_startup():
-    asyncio.create_task(daily_scheduler())
-
-# -------------------------------------------------------------------
-
-# Endpoint manual de trigger
-
-# -------------------------------------------------------------------
-
-@app.get("/run")
-async def run_analysis():
-    analyzer.run_daily_analysis()
-    return {"status": "ok", "message": "Análise diária executada manualmente."}
-
-# -------------------------------------------------------------------
-
-# Execução local direta
-
-# -------------------------------------------------------------------
-
-if __name__ == "__main__":
-    port = int(os.getenv("PORT", "8000"))
-    uvicorn.run("src.main:app", host="0.0.0.0", port=port, log_level="info")
+@app.get("/")
+def root():
+    return {"status": "running", "leagues": LEAGUES}
