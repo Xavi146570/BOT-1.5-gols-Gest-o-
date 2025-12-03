@@ -16,7 +16,11 @@ class Analyzer:
         this_year = datetime.now().year
         return this_year - 1
 
-    def run_daily_analysis(self, leagues):
+    def run_daily_analysis(self, leagues=None):
+        # 🔥 Garantia: nunca é None
+        if not leagues:
+            leagues = []
+
         today = datetime.now().strftime("%Y-%m-%d")
         logger.info(f"📅 Executando análise para a data: {today}")
         logger.info(f"🔢 Total de ligas para consultar: {len(leagues)}")
