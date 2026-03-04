@@ -9,7 +9,9 @@ logger.setLevel(logging.INFO)
 
 class Analyzer:
     def __init__(self):
-        api_key = os.getenv("API_SPORTS_KEY")
+        api_key = os.getenv("API_FOOTBALL_KEY")  # ✅ Corrigido: era API_SPORTS_KEY
+        if not api_key:
+            raise ValueError("API_FOOTBALL_KEY não configurada")
         self.client = APIClient(api_key)
 
     def get_valid_season(self, league_id: int) -> int:
@@ -17,7 +19,6 @@ class Analyzer:
         return this_year - 1
 
     def run_daily_analysis(self, leagues=None):
-        # 🔥 Garantia: nunca é None
         if not leagues:
             leagues = []
 
