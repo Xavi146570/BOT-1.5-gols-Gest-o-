@@ -3,7 +3,7 @@ import os
 import logging
 from datetime import datetime
 from src.api_client import APIClient
-from src.notifier import TelegramNotifier  # Ajuste o caminho se necessário
+from src.telegram_notifier import TelegramNotifier
 from football_value_detector.analyzer import ValueDetector
 
 logger = logging.getLogger("src.analyzer")
