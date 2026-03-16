@@ -13,10 +13,11 @@ scheduler = BackgroundScheduler()
 analyzer = Analyzer()
 
 LEAGUES = [
-    94,   # 🇵🇹 Primeira Liga (Portugal)
-    88,   # 🇳🇱 Eredivisie (Holanda)
-    78,   # 🇩🇪 Bundesliga (Alemanha)
-    40,   # 🏴󠁧󠁢󠁥󠁮󠁧󠁿 Championship (Inglaterra)
+    94,  # Portugal - Primeira Liga
+    88,  # Holanda - Eredivisie
+    89,  # Holanda - Eerste Divisie (Jong AZ vs Maastricht)
+    78,  # Alemanha - Bundesliga
+    40,  # Inglaterra - Championship
 ]
 
 def run_daily():
