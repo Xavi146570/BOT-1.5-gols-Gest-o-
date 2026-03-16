@@ -4,86 +4,63 @@ import logging
 from datetime import datetime
 from src.api_client import APIClient
 from src.telegram_notifier import TelegramNotifier
-from src.value_detector import ValueDetector  # ✅ Correto
+from src.value_detector import ValueDetector
+from src.data_collector import DataCollector
+from src.probability_calculator import calculate_over_probability
 
 logger = logging.getLogger("src.analyzer")
-logger.setLevel(logging.INFO)
 
 class Analyzer:
     def __init__(self):
         api_key = os.getenv("API_FOOTBALL_KEY")
-        if not api_key:
-            raise ValueError("API_FOOTBALL_KEY não configurada")
         self.client = APIClient(api_key)
-
+        self.collector = DataCollector(self.client)
+        self.detector = ValueDetector(required_ev=0.05)
+        
         token = os.getenv("TELEGRAM_BOT_TOKEN")
         chat_id = os.getenv("TELEGRAM_CHAT_ID")
-        enabled = os.getenv("TELEGRAM_ENABLED", "false").lower() == "true"
-
-        self.notifier = None
-        if enabled and token and chat_id:
-            self.notifier = TelegramNotifier(token, chat_id)
-            logger.info("✅ Notificador Telegram inicializado.")
-        else:
-            logger.warning("⚠️ Telegram desativado ou variáveis ausentes.")
-
-        self.detector = ValueDetector(required_ev=0.05)
-
-    def get_valid_season(self, league_id: int) -> int:
-        return 2025
+        self.notifier = TelegramNotifier(token, chat_id) if os.getenv("TELEGRAM_ENABLED") == "true" else None
 
     def run_daily_analysis(self, leagues=None):
-        if not leagues:
-            leagues = []
-
         today = datetime.now().strftime("%Y-%m-%d")
-        logger.info(f"📅 Iniciando análise para: {today}")
-
         all_fixtures = []
         opportunities = []
 
         for league_id in leagues:
-            season = self.get_valid_season(league_id)
-            fixtures = self.client.get_fixtures(date=today, league_id=league_id, season=season)
-
-            if not fixtures:
-                continue
-
+            fixtures = self.client.get_fixtures(date=today, league_id=league_id, season=2025)
             for f in fixtures:
                 all_fixtures.append(f)
-                home = f['teams']['home']['name']
-                away = f['teams']['away']['name']
-                league_name = f['league']['name']
+                h_id, a_id = f['teams']['home']['id'], f['teams']['away']['id']
+                
+                # 1. Coleta dados REAIS
+                h_stats = self.collector.collect_team_data(h_id, league_id, 2025)
+                a_stats = self.collector.collect_team_data(a_id, league_id, 2025)
+                h2h = self.collector.collect_h2h_data(h_id, a_id)
+                
+                # 2. Calcula Probabilidade REAL (Poisson)
+                prob, conf = calculate_over_probability(h_stats, a_stats, h2h, 1.5)
+                
+                # 3. Define Odd (Aqui idealmente buscaria da API, mas usamos 1.45 como base conservadora)
+                market_odds = 1.45 
+                
+                analysis = self.detector.detect_value(prob, market_odds)
 
-                prob = 0.75
-                odds_mercado = 1.50
-
-                analysis = self.detector.detect_value(prob, odds_mercado)
-
-                if analysis['is_value']:
+                if analysis['is_value'] and prob > 0.65: # Filtro de segurança
                     opp = {
-                        'home_team': home,
-                        'away_team': away,
-                        'league': league_name,
+                        'home_team': f['teams']['home']['name'],
+                        'away_team': f['teams']['away']['name'],
+                        'league': f['league']['name'],
                         'match_date': f['fixture']['date'],
                         'our_probability': prob,
-                        'over_1_5_odds': odds_mercado,
+                        'over_1_5_odds': market_odds,
                         'expected_value': analysis['expected_value'],
                         'recommended_stake': analysis['suggested_stake'] * 100,
-                        'bet_quality': 'BOA',
-                        'risk_level': 'MÉDIO',
-                        'confidence': prob * 100,
+                        'bet_quality': 'EXCELENTE' if prob > 0.8 else 'BOA',
+                        'risk_level': 'BAIXO' if prob > 0.8 else 'MÉDIO',
+                        'confidence': conf * 100,
                         'edge': analysis['expected_value']
                     }
                     opportunities.append(opp)
+                    if self.notifier: self.notifier.notify_opportunity(opp)
 
-                    if self.notifier:
-                        self.notifier.notify_opportunity(opp)
-                        logger.info(f"🚀 Alerta enviado: {home} vs {away}")
-
-        if self.notifier:
-            self.notifier.notify_daily_summary(opportunities, len(all_fixtures))
-            logger.info("📊 Resumo diário enviado para o Telegram.")
-
-        if not all_fixtures:
-            logger.info("⚠️ Nenhum jogo encontrado hoje.")
+        if self.notifier: self.notifier.notify_daily_summary(opportunities, len(all_fixtures))
