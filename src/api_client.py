@@ -48,14 +48,22 @@ class APIClient:
         }
 
     def collect_h2h_data(self, team1_id: int, team2_id: int):
-        """Busca histórico de confrontos diretos"""
+        """Busca histórico de confrontos diretos com proteção contra valores nulos"""
         data = self.safe_request("fixtures/headtohead", {"h2h": f"{team1_id}-{team2_id}", "last": 10})
         if not data or not data.get("response"): return {}
         
         fixtures = data["response"]
         over15_count = 0
-        for f in fixtures:
-            if (f['goals']['home'] + f['goals']['away']) > 1.5:
-                over15_count += 1
+        valid_games = 0
         
-        return {'h2h_over_1_5_rate': over15_count / len(fixtures) if fixtures else 0.5}
+        for f in fixtures:
+            # Proteção contra golos nulos (None)
+            home_goals = f.get('goals', {}).get('home')
+            away_goals = f.get('goals', {}).get('away')
+            
+            if home_goals is not None and away_goals is not None:
+                valid_games += 1
+                if (home_goals + away_goals) > 1.5:
+                    over15_count += 1
+        
+        return {'h2h_over_1_5_rate': over15_count / valid_games if valid_games > 0 else 0.5}
